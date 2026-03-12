@@ -9,7 +9,7 @@ using SharpArena.Allocators;
 /// A zero-allocation arena allocator for high-performance parsing.
 /// </summary>
 /// <remarks>
-/// All memory allocated from this arena is invalid after <see cref="Reset"/> or <see cref="Dispose"/> is called.
+/// All memory allocated from this arena is invalid after <see cref="Reset"/> or <see cref="Dispose()"/> is called.
 /// </remarks>
 public unsafe class ArenaAllocator : IDisposable
 {
@@ -25,6 +25,12 @@ public unsafe class ArenaAllocator : IDisposable
     private readonly object _disposeLock = new();
     private int _activeAllocations;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ArenaAllocator"/> class.
+    /// </summary>
+    /// <param name="initialSize">The initial size of the first segment.</param>
+    /// <param name="maxSize">The maximum size a single segment can grow to.</param>
+    /// <param name="backend">The backend to use for allocating native memory.</param>
     public ArenaAllocator(
         nuint initialSize = 64 * 1024,
         nuint maxSize = 256 * 1024 * 1024,
@@ -189,6 +195,9 @@ public unsafe class ArenaAllocator : IDisposable
         }
     }
 
+    /// <summary>
+    /// Disposes the arena, freeing all allocated unmanaged memory.
+    /// </summary>
     public void Dispose()
     {
         lock (_disposeLock)

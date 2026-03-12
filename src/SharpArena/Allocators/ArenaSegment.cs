@@ -11,13 +11,25 @@ namespace SharpArena.Allocators;
 public unsafe struct ArenaSegment
 {
 #if DEBUG
+    /// <summary>
+    /// A diagnostic value used to detect memory corruption at the head of the segment.
+    /// </summary>
     public ulong HeadCanary;
+    /// <summary>
+    /// A diagnostic value used to detect memory corruption at the tail of the segment.
+    /// </summary>
     public ulong TailCanary;
 
     internal const ulong Canary = 0xDEADBEEFCAFEBABEul;
 #endif
 
+    /// <summary>
+    /// The current byte offset within the segment where the next allocation can occur.
+    /// </summary>
     public nuint Offset;
+    /// <summary>
+    /// A pointer to the base address of the allocated block.
+    /// </summary>
     public byte* Base;
     /// <summary>
     /// The total allocated size of this segment in bytes.
