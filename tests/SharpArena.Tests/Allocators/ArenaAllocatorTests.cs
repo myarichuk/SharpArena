@@ -1,8 +1,7 @@
 using SharpArena.Allocators;
-using SharpArena.Collections;
 using Xunit;
 
-namespace Json.Path.Tests.Allocators;
+namespace SharpArena.Tests.Allocators;
 
 [CollectionDefinition("ArenaAllocatorTests", DisableParallelization = true)]
 public class NonConcurrentCollection
