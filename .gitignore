@@ -1,0 +1,23 @@
+
+# Build and test output
+[Bb]in/
+[Oo]bj/
+[Tt]est[Rr]esults/
+*.assets.cache
+*.csproj.nuget.*
+
+
+[Bb]in/
+[Oo]bj/
+[Tt]est[Rr]esults/
+*.assets.cache
+*.csproj.nuget.*
+bin/
+obj/
+TestResults/
+bin/
+obj/
+
+**/bin/
+**/obj/
+**/TestResults/
