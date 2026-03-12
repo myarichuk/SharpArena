@@ -1,5 +1,5 @@
 using SharpArena.Allocators;
-using SharpArena.Helpers;
+using SharpArena.Collections;
 using Xunit;
 
 namespace Json.Path.Tests.Allocators;

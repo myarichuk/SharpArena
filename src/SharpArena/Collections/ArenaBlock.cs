@@ -2,10 +2,9 @@ using System.Runtime.CompilerServices;
 using SharpArena.Allocators;
 using System.Collections;
 using System.Diagnostics;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace SharpArena.Helpers;
+namespace SharpArena.Collections;
 
 /// <summary>
 /// Describes a single arena-allocated block within an <see cref="ArenaBlockList{T}"/>.

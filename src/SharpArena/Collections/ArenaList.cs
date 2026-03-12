@@ -1,10 +1,9 @@
 using System.Runtime.CompilerServices;
 using SharpArena.Allocators;
 using System.Diagnostics;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace SharpArena.Helpers;
+namespace SharpArena.Collections;
 
 /// <summary>
 /// Metadata describing the shared state of an <see cref="ArenaList{T}"/>.

@@ -1,8 +1,8 @@
 using SharpArena.Allocators;
-using SharpArena.Helpers;
+using SharpArena.Collections;
 using Xunit;
 
-namespace SharpArena.Tests.Helpers;
+namespace SharpArena.Tests.Collections;
 
 public class ArenaListTests : IDisposable
 {

@@ -1,10 +1,9 @@
 using System.Runtime.CompilerServices;
 using SharpArena.Allocators;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 // ReSharper disable MemberCanBePrivate.Global
-namespace SharpArena.Helpers;
+namespace SharpArena.Collections;
 
 /// <summary>
 /// A non-owning view of UTF-16 text stored in unmanaged (arena) memory.
