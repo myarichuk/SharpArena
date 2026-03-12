@@ -19,7 +19,13 @@ public unsafe struct ArenaSegment
 
     public nuint Offset;
     public byte* Base;
+    /// <summary>
+    /// The total allocated size of this segment in bytes.
+    /// </summary>
     public nuint Size;
+    /// <summary>
+    /// A pointer to the next segment in the arena, or null if this is the last segment.
+    /// </summary>
     public ArenaSegment* Next;
 
     /// <summary>
