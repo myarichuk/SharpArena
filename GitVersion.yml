@@ -1,0 +1,6 @@
+mode: ContinuousDelivery
+commit-message-incrementing: Enabled
+major-version-bump-message: "^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\\([a-z ]+\\))?!:|^BREAKING CHANGE:"
+minor-version-bump-message: "^(feat)(\\([a-z ]+\\))?:"
+patch-version-bump-message: "^(fix|perf)(\\([a-z ]+\\))?:"
+no-bump-message: "^(build|chore|ci|docs|refactor|revert|style|test)(\\([a-z ]+\\))?:|.*"
