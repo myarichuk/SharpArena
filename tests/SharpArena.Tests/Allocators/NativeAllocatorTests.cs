@@ -1,8 +1,7 @@
 using SharpArena.Allocators;
-using SharpArena.Collections;
 using Xunit;
 
-namespace Json.Path.Tests;
+namespace SharpArena.Tests.Allocators;
 
 
 public unsafe class NativeAllocatorTests
