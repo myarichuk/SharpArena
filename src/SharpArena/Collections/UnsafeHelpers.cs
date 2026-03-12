@@ -1,8 +1,7 @@
 using System.Runtime.CompilerServices;
 using SharpArena.Allocators;
-using System.Runtime.CompilerServices;
 
-namespace SharpArena.Helpers;
+namespace SharpArena.Collections;
 
 public class UnsafeHelpers
 {

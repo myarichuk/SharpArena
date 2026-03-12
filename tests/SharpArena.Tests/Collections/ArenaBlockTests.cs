@@ -1,8 +1,8 @@
 using SharpArena.Allocators;
-using SharpArena.Helpers;
+using SharpArena.Collections;
 using Xunit;
 
-namespace Json.Path.Tests.Helpers;
+namespace SharpArena.Tests.Collections;
 
 public unsafe class ArenaBlockListTests : IDisposable
 {

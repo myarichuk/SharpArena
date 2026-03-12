@@ -1,9 +1,8 @@
 using System.Runtime.CompilerServices;
 using SharpArena.Allocators;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace SharpArena.Helpers;
+namespace SharpArena.Collections;
 
 /// <summary>
 /// Describes the metadata shared by copies of an <see cref="ArenaPtrStack{T}"/>.
