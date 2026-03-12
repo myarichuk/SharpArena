@@ -240,4 +240,36 @@ public unsafe class ArenaPtrStackTests
         public int X;
         public int Y;
     }
+
+    [Fact]
+    public void Pop_EmptyStack_ThrowsInvalidOperationException()
+    {
+        using var _arena = new ArenaAllocator(4096);
+        var stack = new ArenaPtrStack<int>(_arena, 4);
+        Assert.Throws<InvalidOperationException>(() => stack.Pop());
+    }
+
+    [Fact]
+    public void Peek_EmptyStack_ThrowsInvalidOperationException()
+    {
+        using var _arena = new ArenaAllocator(4096);
+        var stack = new ArenaPtrStack<int>(_arena, 4);
+        Assert.Throws<InvalidOperationException>(() => stack.Peek());
+    }
+
+    [Fact]
+    public void Property_Capacity_ReturnsExpectedValue()
+    {
+        using var _arena = new ArenaAllocator(4096);
+        var stack = new ArenaPtrStack<int>(_arena, 4);
+        Assert.Equal(4, stack.Capacity);
+
+        int dummy = 42;
+        for (int i = 0; i < 5; i++)
+        {
+            stack.Push(&dummy);
+        }
+
+        Assert.True(stack.Capacity >= 5);
+    }
 }
