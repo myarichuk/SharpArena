@@ -128,6 +128,9 @@ public unsafe struct ArenaList<T>
         _header->Count = 0;
     }
 
+    /// <summary>
+    /// Gets a pointer to the raw unmanaged data of the list.
+    /// </summary>
     public T* AsPtr => (T*)_header->Data;
 
     /// <summary>
