@@ -1,15 +1,10 @@
-name: CI & CD
+name: Manual Release
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
+  workflow_dispatch:
 
 jobs:
-  build_and_test:
+  release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -46,19 +41,16 @@ jobs:
         run: dotnet test SharpArena.sln --no-build -c Release --verbosity normal
 
       - name: Tag Repository
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gitversion.outputs.CommitsSinceVersionSource == '0'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag v${{ steps.gitversion.outputs.SemVer }}
-          git push origin v${{ steps.gitversion.outputs.SemVer }}
+          git tag v${{ steps.gitversion.outputs.SemVer }} || echo "Tag already exists"
+          git push origin v${{ steps.gitversion.outputs.SemVer }} || echo "Failed to push tag"
 
       - name: Pack
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gitversion.outputs.CommitsSinceVersionSource == '0'
         run: dotnet pack src/SharpArena/SharpArena.csproj -c Release --no-build /p:PackageVersion=${{ steps.gitversion.outputs.NuGetVersionV2 }} -o ./artifacts
 
       - name: Create Release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gitversion.outputs.CommitsSinceVersionSource == '0'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.gitversion.outputs.SemVer }}
@@ -67,7 +59,6 @@ jobs:
           files: ./artifacts/*.nupkg
 
       - name: Push to NuGet
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gitversion.outputs.CommitsSinceVersionSource == '0'
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |

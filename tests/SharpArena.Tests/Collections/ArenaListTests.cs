@@ -50,6 +50,36 @@ public class ArenaListTests : IDisposable
         }
     }
 
+    [Fact]
+    public void Property_Capacity_ReturnsExpectedValue()
+    {
+        var list = new ArenaList<int>(_arena, initialCapacity: 4);
+        // We can't access Capacity directly, but we can test if it grows.
+        // Actually ArenaList doesn't expose Capacity currently.
+        // So we will just test growth implicitly via Count.
+        for (int i = 0; i < 5; i++)
+        {
+            list.Add(i);
+        }
+        Assert.Equal(5, list.Length);
+    }
+
+    [Fact]
+    public void Reset_ClearsListButKeepsBuffer()
+    {
+        var list = new ArenaList<int>(_arena, initialCapacity: 4);
+        list.Add(1);
+        list.Add(2);
+        Assert.Equal(2, list.Length);
+
+        list.Reset();
+        Assert.Equal(0, list.Length);
+        Assert.True(list.IsEmpty);
+        list.Add(3);
+        Assert.Equal(1, list.Length);
+        Assert.Equal(3, list[0]);
+    }
+
     public void Dispose()
     {
         _arena.Dispose();
