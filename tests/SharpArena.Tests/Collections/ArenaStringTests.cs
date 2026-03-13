@@ -97,6 +97,42 @@ public unsafe class ArenaStringTests : IDisposable
     }
 
     [Fact]
+    public void Slice_NegativeStart_ThrowsArgumentOutOfRangeException()
+    {
+        var text = "Hello, World!";
+        var str = ArenaString.Clone(text, _arena);
+
+        var act = () => str.Slice(-1, 2);
+
+        act.Should().Throw<ArgumentOutOfRangeException>()
+            .WithParameterName("start");
+    }
+
+    [Fact]
+    public void Slice_NegativeLength_ThrowsArgumentOutOfRangeException()
+    {
+        var text = "Hello, World!";
+        var str = ArenaString.Clone(text, _arena);
+
+        var act = () => str.Slice(0, -1);
+
+        act.Should().Throw<ArgumentOutOfRangeException>()
+            .WithParameterName("length");
+    }
+
+    [Fact]
+    public void Slice_Overrun_ThrowsArgumentOutOfRangeException()
+    {
+        var text = "Hello, World!";
+        var str = ArenaString.Clone(text, _arena);
+
+        var act = () => str.Slice(10, 10);
+
+        act.Should().Throw<ArgumentOutOfRangeException>()
+            .WithParameterName("length");
+    }
+
+    [Fact]
     public void ImplicitOperator_ToReadOnlySpan_Works()
     {
         var text = "Hello";

@@ -104,16 +104,25 @@ public readonly unsafe struct ArenaString(char* ptr, int len)
     /// <param name="start">The zero-based inclusive start index.</param>
     /// <param name="length">The number of characters in the slice.</param>
     /// <returns>A new arena string referencing the requested subrange.</returns>
-    /// <exception cref="ArgumentOutOfRangeException">Thrown when the slice exceeds the current range.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// Thrown when <paramref name="start"/>, <paramref name="length"/>, or their range exceeds the current string bounds.
+    /// </exception>
     public ArenaString Slice(int start, int length)
     {
-        #if DEBUG
-        // TODO: consider removing DEBUG clause here
-        if (start < 0 || length < 0 || start + length > len)
+        if (start < 0)
         {
-            throw new ArgumentOutOfRangeException();
+            throw new ArgumentOutOfRangeException(nameof(start), "Start index must be non-negative.");
         }
-        #endif
+
+        if (length < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(length), "Slice length must be non-negative.");
+        }
+
+        if (start + length > len)
+        {
+            throw new ArgumentOutOfRangeException(nameof(length), "Slice range must be within the string bounds.");
+        }
 
         return new ArenaString(ptr + start, length);
     }
