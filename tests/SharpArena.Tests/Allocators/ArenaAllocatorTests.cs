@@ -126,4 +126,117 @@ public unsafe class ArenaAllocatorTests : IDisposable
         GC.Collect();                     // should not crash; finalizer must be suppressed or no-op
         Assert.False(wr?.IsAlive);
     }
+
+    [Fact]
+    public void Alloc_ExceedingMaxSegmentSize_ShouldAllocateSuccessfully()
+    {
+        // initialSize: 512, maxSize: 1024
+        using var arena = new ArenaAllocator(512, 1024);
+
+        // Allocate larger than maxSize
+        var ptr = arena.Alloc(4096);
+        Assert.NotEqual(IntPtr.Zero, (nint)ptr);
+
+        // Verify we can still allocate small things afterwards
+        var smallPtr = arena.Alloc(64);
+        Assert.NotEqual(IntPtr.Zero, (nint)smallPtr);
+        Assert.NotEqual((nint)ptr, (nint)smallPtr);
+    }
+
+    [Fact]
+    public void ConcurrentAlloc_And_Reset_ShouldNotCrash()
+    {
+        // Test beyond the basic _activeAllocations counter
+        using var arena = new ArenaAllocator(4096);
+
+        var options = new ParallelOptions { MaxDegreeOfParallelism = 4 };
+        int completedAllocations = 0;
+
+        Parallel.Invoke(options,
+            () =>
+            {
+                for (int i = 0; i < 10000; i++)
+                {
+                    try
+                    {
+                        var ptr = arena.Alloc(16);
+                        if (ptr != null)
+                        {
+                            Interlocked.Increment(ref completedAllocations);
+                        }
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        // Dispose might have been called, but we are only testing Reset here
+                    }
+                }
+            },
+            () =>
+            {
+                for (int i = 0; i < 10000; i++)
+                {
+                    try
+                    {
+                        var ptr = arena.Alloc(32);
+                        if (ptr != null)
+                        {
+                            Interlocked.Increment(ref completedAllocations);
+                        }
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                    }
+                }
+            },
+            () =>
+            {
+                for (int i = 0; i < 100; i++)
+                {
+                    Thread.Sleep(1);
+                    arena.Reset();
+                }
+            }
+        );
+
+        Assert.True(completedAllocations > 0);
+    }
+
+    [Theory]
+    [InlineData(8u)]
+    [InlineData(16u)]
+    [InlineData(32u)]
+    [InlineData(64u)]
+    [InlineData(128u)]
+    public void Alloc_WithVariousAlignments_ShouldAlignCorrectly(uint align)
+    {
+        var alignment = (nuint)align;
+        // Allocate once to shift offset
+        _arena.Alloc(1);
+
+        var ptr = _arena.Alloc(16, alignment);
+
+        Assert.NotEqual(IntPtr.Zero, (nint)ptr);
+        Assert.True(((nuint)ptr & (alignment - 1)) == 0, $"Pointer should be aligned to at least {alignment}.");
+    }
+
+    [Fact]
+    public void Alloc_ExtremeMemoryPressure_ShouldHandleGracefully()
+    {
+        nuint maxSize = 1024 * 1024; // 1MB
+        using var arena = new ArenaAllocator(64 * 1024, maxSize);
+
+        // Allocate 10x maxSize to trigger multiple segment creations at max size
+        nuint totalAllocated = 0;
+        nuint target = maxSize * 10;
+
+        while (totalAllocated < target)
+        {
+            var ptr = arena.Alloc(16 * 1024); // 16KB chunks
+            Assert.NotEqual(IntPtr.Zero, (nint)ptr);
+            totalAllocated += 16 * 1024;
+        }
+
+        // We should have successfully allocated all memory
+        Assert.True(totalAllocated >= target);
+    }
 }
