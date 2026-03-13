@@ -15,7 +15,7 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes Condition="Exists('$(MSBuildProjectDirectory)/../../RELEASE_NOTES.txt')">$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/../../RELEASE_NOTES.txt'))</PackageReleaseNotes>
     <Authors>SharpArena Contributors</Authors>
-    <RepositoryUrl>https://github.com/myarichuk/Json.Path</RepositoryUrl>
+    <RepositoryUrl>https://github.com/myarichuk/SharpArena</RepositoryUrl>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.1'">
