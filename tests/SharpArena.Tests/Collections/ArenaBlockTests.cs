@@ -100,4 +100,20 @@ public unsafe class ArenaBlockListTests : IDisposable
         Assert.Equal(Enumerable.Range(0, 10), result);
         Assert.Equal((nuint)10, list.Count);
     }
+
+    [Fact]
+    public void AccessAfterReset_ThrowsObjectDisposedException()
+    {
+        var list = new ArenaBlockList<int>(_arena);
+        list.Add(1);
+
+        _arena.Reset();
+
+        Assert.Throws<ObjectDisposedException>(() => list.Add(2));
+        Assert.Throws<ObjectDisposedException>(() => _ = list.Count);
+        Assert.Throws<ObjectDisposedException>(() => _ = list.Capacity);
+        Assert.Throws<ObjectDisposedException>(() => list.GetEnumerator());
+        Assert.Throws<ObjectDisposedException>(() => list.GetSpan());
+        Assert.Throws<ObjectDisposedException>(() => list.Reset());
+    }
 }

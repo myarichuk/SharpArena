@@ -141,4 +141,27 @@ public unsafe class ArenaStringTests : IDisposable
         ReadOnlySpan<char> span = str;
         span.SequenceEqual(text.AsSpan()).Should().BeTrue();
     }
+
+    [Fact]
+    public void AccessAfterReset_ThrowsObjectDisposedException()
+    {
+        var str = ArenaString.Clone("Hello", _arena);
+
+        _arena.Reset();
+
+        Action act = () => _ = str.Length;
+        act.Should().Throw<ObjectDisposedException>();
+        
+        act = () => _ = str.IsEmpty;
+        act.Should().Throw<ObjectDisposedException>();
+        
+        act = () => _ = str.ToString();
+        act.Should().Throw<ObjectDisposedException>();
+        
+        act = () => _ = str.AsSpan().Length;
+        act.Should().Throw<ObjectDisposedException>();
+
+        act = () => str.Slice(0, 1);
+        act.Should().Throw<ObjectDisposedException>();
+    }
 }

@@ -3,6 +3,8 @@ using SharpArena.Allocators;
 using System.Collections;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+// ReSharper disable UnusedMember.Global
+#pragma warning disable CS1591 // Missing XML comment for publicly visible type or member
 
 namespace SharpArena.Collections;
 
@@ -45,8 +47,13 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
     private const nuint DefaultBlockSize = 128;
 
     private readonly ArenaAllocator _arena;
+    private readonly int _generation; //generation snapshot
     private readonly ArenaBlock<T>* _head;
     private ArenaBlock<T>* _current;
+    
+    // Cache total count and capacity to avoid O(N) traversal
+    private nuint _count;
+    private nuint _capacity;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ArenaBlockList{T}"/> struct.
@@ -57,6 +64,18 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
     {
         _arena = arena;
         _head = _current = CreateBlock(arena, blockSize);
+        _generation = arena.CurrentGeneration;
+        _count = 0;
+        _capacity = blockSize;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void CheckAliveThrowIfNot()
+    {
+        if (_arena == null || _arena.CurrentGeneration != _generation)
+        {
+            throw new ObjectDisposedException(nameof(ArenaBlockList<T>), "Arena was reset or disposed — all pointers invalid");
+        }
     }
 
     private static ArenaBlock<T>* CreateBlock(ArenaAllocator arena, nuint capacity)
@@ -73,8 +92,6 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
         return block;
     }
 
-    // TODO: cache in memory - we update it any way when adding
-
     /// <summary>
     /// Gets the number of elements stored across all blocks.
     /// </summary>
@@ -82,13 +99,8 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
     {
         get
         {
-            nuint total = 0;
-            for (var b = _head; b != null; b = b->Next)
-            {
-                total += b->Count;
-            }
-
-            return total;
+            CheckAliveThrowIfNot();
+            return _count;
         }
     }
 
@@ -99,13 +111,8 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
     {
         get
         {
-            nuint total = 0;
-            for (var b = _head; b != null; b = b->Next)
-            {
-                total += b->Capacity;
-            }
-
-            return total;
+            CheckAliveThrowIfNot();
+            return _capacity;
         }
     }
 
@@ -114,12 +121,14 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
     /// </summary>
     public void Reset()
     {
+        CheckAliveThrowIfNot();
         for (var b = _head; b != null; b = b->Next)
         {
             b->Count = 0;
         }
 
         _current = _head;
+        _count = 0;
     }
 
     /// <summary>
@@ -128,14 +137,18 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
     /// <param name="value">The value to append.</param>
     public void Add(in T value)
     {
+        CheckAliveThrowIfNot();
         if (_current->Count >= _current->Capacity)
         {
-            var newBlock = CreateBlock(_arena, _current->Capacity * 2);
+            var nextCapacity = _current->Capacity * 2;
+            var newBlock = CreateBlock(_arena, nextCapacity);
             _current->Next = newBlock;
             _current = newBlock;
+            _capacity += nextCapacity;
         }
 
         _current->Data[_current->Count++] = value;
+        _count++;
     }
 
     /// <summary>
@@ -143,35 +156,58 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
     /// </summary>
     /// <returns>An enumerator over the list.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public Enumerator GetEnumerator() => new(_head);
+    public Enumerator GetEnumerator()
+    {
+        CheckAliveThrowIfNot();
+        return new Enumerator(_head, _arena);
+    }
 
-    IEnumerator<T> IEnumerable<T>.GetEnumerator() => new Enumerator(_head);
+    IEnumerator<T> IEnumerable<T>.GetEnumerator()
+    {
+        CheckAliveThrowIfNot();
+        return new Enumerator(_head, _arena);
+    }
 
-    IEnumerator IEnumerable.GetEnumerator() => new Enumerator(_head);
+    IEnumerator IEnumerable.GetEnumerator()
+    {
+        CheckAliveThrowIfNot();
+        return new Enumerator(_head, _arena);
+    }
 
     /// <summary>
     /// Provides a value-type enumerator for iterating over the block list contents.
     /// </summary>
-    public struct Enumerator(ArenaBlock<T>* head) : IEnumerator<T>
+    /// <summary>
+    /// Provides a value-type enumerator for iterating over the block list contents.
+    /// </summary>
+    public struct Enumerator : IEnumerator<T>
     {
-        private readonly ArenaBlock<T>* _head = head;
-        private ArenaBlock<T>* _block = head;
-        private nuint _index = 0;
-        private T _current = default;
+        private readonly ArenaAllocator _arena;
+        private readonly int _generation;
+        private readonly ArenaBlock<T>* _head;
+        private ArenaBlock<T>* _block;
+        private nuint _index;
+        private T _current;
 
-        /// <inheritdoc />
+        internal Enumerator(ArenaBlock<T>* head, ArenaAllocator arena)
+        {
+            _arena = arena ?? throw new ArgumentNullException(nameof(arena));
+            _generation = arena.CurrentGeneration;
+            _head = head;
+            _block = head;
+            _index = 0;
+            _current = default;
+        }
+
         public T Current => _current;
-
-        /// <inheritdoc/>
         object IEnumerator.Current => _current!;
 
-        /// <inheritdoc />
         public bool MoveNext()
         {
+            ThrowIfArenaDead();
+
             if (_block == null)
-            {
                 return false;
-            }
 
             while (_block != null)
             {
@@ -188,24 +224,31 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
             return false;
         }
 
-        /// <inheritdoc/>
+        private void ThrowIfArenaDead()
+        {
+            if (_arena == null || _arena.CurrentGeneration != _generation)
+            {
+                throw new ObjectDisposedException(nameof(Enumerator), "Arena was reset or disposed");
+            }
+        }
+
         public void Reset()
         {
+            ThrowIfArenaDead();
             _block = _head;
             _index = 0;
             _current = default;
         }
 
-        /// <inheritdoc />
         public void Dispose() { }
     }
-
     /// <summary>
     /// Copies the list contents into a contiguous span allocated from the arena.
     /// </summary>
     /// <returns>A span that owns a contiguous copy of the stored values.</returns>
     public ReadOnlySpan<T> GetSpan()
     {
+        CheckAliveThrowIfNot();
         var total = Count;
         if (total == 0)
         {

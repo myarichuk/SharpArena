@@ -9,8 +9,13 @@ namespace SharpArena.Collections;
 /// A non-owning view of UTF-16 text stored in unmanaged (arena) memory.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
-public readonly unsafe struct ArenaString(char* ptr, int len)
+public readonly unsafe struct ArenaString
 {
+    private readonly char* _ptr;
+    private readonly int _len;
+    private readonly ArenaAllocator _arena;
+    private readonly int _generation;
+
     /// <summary>
     /// Performs an implicit conversion to <see cref="ReadOnlySpan{Char}"/>.
     /// </summary>
@@ -18,29 +23,71 @@ public readonly unsafe struct ArenaString(char* ptr, int len)
     /// <returns>A span referencing the same characters.</returns>
     public static implicit operator ReadOnlySpan<char>(ArenaString value) => value.AsSpan();
 
+    internal ArenaString(ArenaAllocator arena, char* ptr, int len)
+    {
+        _arena = arena;
+        _generation = arena?.CurrentGeneration ?? 0;
+        _ptr = ptr;
+        _len = len;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void CheckAliveThrowIfNot()
+    {
+        if (_ptr == null || _len == 0)
+        {
+            return;
+        }
+
+        if (_arena == null || _arena.CurrentGeneration != _generation)
+        {
+            throw new ObjectDisposedException(nameof(ArenaString), "Arena was reset or disposed — all pointers invalid");
+        }
+    }
+
     /// <summary>
     /// Gets the number of characters represented by the string.
     /// </summary>
-    public int Length => len;
+    public int Length
+    {
+        get
+        {
+            CheckAliveThrowIfNot();
+            return _len;
+        }
+    }
 
     /// <summary>
     /// Gets a value indicating whether the string is empty or uninitialized.
     /// </summary>
-    public bool IsEmpty => len == 0 || ptr == null;
+    public bool IsEmpty
+    {
+        get
+        {
+            CheckAliveThrowIfNot();
+            return _len == 0 || _ptr == null;
+        }
+    }
 
     /// <summary>
     /// Materializes the arena-backed buffer as a managed span.
     /// </summary>
     /// <returns>The span covering the string contents.</returns>
-    public ReadOnlySpan<char> AsSpan() =>
-        ptr == null ? ReadOnlySpan<char>.Empty : new ReadOnlySpan<char>(ptr, len);
+    public ReadOnlySpan<char> AsSpan()
+    {
+        CheckAliveThrowIfNot();
+        return _ptr == null ? ReadOnlySpan<char>.Empty : new ReadOnlySpan<char>(_ptr, _len);
+    }
 
     /// <summary>
     /// Returns the managed string representation of the arena-backed buffer.
     /// </summary>
     /// <returns>A managed string copy.</returns>
-    public override string ToString() =>
-        ptr == null ? string.Empty : new string(ptr, 0, len);
+    public override string ToString()
+    {
+        CheckAliveThrowIfNot();
+        return _ptr == null ? string.Empty : new string(_ptr, 0, _len);
+    }
 
     /// <summary>
     /// Clones the provided span into arena-managed memory.
@@ -59,7 +106,7 @@ public readonly unsafe struct ArenaString(char* ptr, int len)
         var bytes = (nuint)(src.Length * sizeof(char));
         var dest = (char*)arena.Alloc(bytes, align: (nuint)UnsafeHelpers.AlignOf<char>());
         src.CopyTo(new Span<char>(dest, src.Length));
-        return new ArenaString(dest, src.Length);
+        return new ArenaString(arena, dest, src.Length);
     }
 
     /// <summary>
@@ -69,7 +116,7 @@ public readonly unsafe struct ArenaString(char* ptr, int len)
     /// <returns><see langword="true"/> when the spans are equal; otherwise, <see langword="false"/>.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool Equals(ReadOnlySpan<char> other) =>
-        len == other.Length && AsSpan().SequenceEqual(other);
+        _len == other.Length && AsSpan().SequenceEqual(other);
 
     /// <summary>
     /// Determines whether the current string equals another arena-backed string.
@@ -88,7 +135,7 @@ public readonly unsafe struct ArenaString(char* ptr, int len)
     public override int GetHashCode()
     {
         var hash = new HashCode();
-        hash.Add(len);
+        hash.Add(_len);
 
         foreach (var ch in AsSpan())
         {
@@ -109,6 +156,7 @@ public readonly unsafe struct ArenaString(char* ptr, int len)
     /// </exception>
     public ArenaString Slice(int start, int length)
     {
+        CheckAliveThrowIfNot();
         if (start < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(start), "Start index must be non-negative.");
@@ -119,12 +167,12 @@ public readonly unsafe struct ArenaString(char* ptr, int len)
             throw new ArgumentOutOfRangeException(nameof(length), "Slice length must be non-negative.");
         }
 
-        if (start + length > len)
+        if (start + length > _len)
         {
             throw new ArgumentOutOfRangeException(nameof(length), "Slice range must be within the string bounds.");
         }
 
-        return new ArenaString(ptr + start, length);
+        return new ArenaString(_arena, _ptr + start, length);
     }
 
     /// <summary>

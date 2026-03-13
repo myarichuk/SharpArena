@@ -272,4 +272,27 @@ public unsafe class ArenaPtrStackTests
 
         Assert.True(stack.Capacity >= 5);
     }
+
+    [Fact]
+    public void AccessAfterReset_ThrowsObjectDisposedException()
+    {
+        using var arena = new ArenaAllocator(4096);
+        var stack = new ArenaPtrStack<int>(arena);
+        
+        // Allocate a valid pointer initially
+        var ptr = (int*)arena.Alloc(sizeof(int));
+        *ptr = 123;
+        stack.Push(ptr);
+
+        arena.Reset();
+
+        // Pass the (now invalid) pointer. The logic should throw before accessing it.
+        Assert.Throws<ObjectDisposedException>(() => stack.Push(ptr));
+        Assert.Throws<ObjectDisposedException>(() => stack.Pop());
+        Assert.Throws<ObjectDisposedException>(() => stack.Peek());
+        Assert.Throws<ObjectDisposedException>(() => stack.Clear());
+        Assert.Throws<ObjectDisposedException>(() => _ = stack.Count);
+        Assert.Throws<ObjectDisposedException>(() => _ = stack.IsEmpty);
+        Assert.Throws<ObjectDisposedException>(() => _ = stack.Capacity);
+    }
 }

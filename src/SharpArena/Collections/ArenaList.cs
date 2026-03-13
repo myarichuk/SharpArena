@@ -1,3 +1,4 @@
+using System;
 using System.Runtime.CompilerServices;
 using SharpArena.Allocators;
 using System.Diagnostics;
@@ -37,6 +38,7 @@ public unsafe struct ArenaList<T>
     where T : unmanaged
 {
     private readonly ArenaAllocator _arena; // class reference – fine
+    private readonly int _generation;
     private ArenaListHeader* _header;
 
     /// <summary>
@@ -47,6 +49,8 @@ public unsafe struct ArenaList<T>
     public ArenaList(ArenaAllocator arena, int initialCapacity = 16)
     {
         _arena = arena;
+        _generation = arena.CurrentGeneration;
+        
         if (initialCapacity <= 0)
         {
             initialCapacity = 1;
@@ -60,15 +64,38 @@ public unsafe struct ArenaList<T>
             align: (nuint)UnsafeHelpers.AlignOf<T>());
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void CheckAliveThrowIfNot()
+    {
+        if (_arena == null || _arena.CurrentGeneration != _generation)
+        {
+            throw new ObjectDisposedException(nameof(ArenaList<T>), "Arena was reset or disposed — all pointers invalid");
+        }
+    }
+
     /// <summary>
     /// Gets the number of elements stored in the list.
     /// </summary>
-    public int Length => _header != null ? _header->Count : 0;
+    public int Length
+    {
+        get
+        {
+            CheckAliveThrowIfNot();
+            return _header != null ? _header->Count : 0;
+        }
+    }
 
     /// <summary>
     /// Gets a value indicating whether the list is empty.
     /// </summary>
-    public bool IsEmpty => _header == null || _header->Count == 0;
+    public bool IsEmpty
+    {
+        get
+        {
+            CheckAliveThrowIfNot();
+            return _header == null || _header->Count == 0;
+        }
+    }
 
     /// <summary>
     /// Provides indexed access to the list items.
@@ -79,11 +106,11 @@ public unsafe struct ArenaList<T>
     {
         get
         {
+            CheckAliveThrowIfNot();
             if ((uint)index >= (uint)_header->Count)
             {
                 throw new ArgumentOutOfRangeException(nameof(index));
             }
-
             return ref ((T*)_header->Data)[index];
         }
     }
@@ -94,6 +121,7 @@ public unsafe struct ArenaList<T>
     /// <param name="value">The value to add.</param>
     public void Add(in T value)
     {
+        CheckAliveThrowIfNot();
         if (_header->Count >= _header->Capacity)
         {
             Grow();
@@ -123,6 +151,7 @@ public unsafe struct ArenaList<T>
     /// </summary>
     public void Reset()
     {
+        CheckAliveThrowIfNot();
         // just in case :)
         if (_header == null)
         {
@@ -135,11 +164,37 @@ public unsafe struct ArenaList<T>
     /// <summary>
     /// Gets a pointer to the raw unmanaged data of the list.
     /// </summary>
-    public T* AsPtr => (T*)_header->Data;
+    public T* AsPtr
+    {
+        get
+        {
+            CheckAliveThrowIfNot();
+            return (T*)_header->Data;
+        }
+    }
 
     /// <summary>
-    /// Provides a span view of the stored elements.
+    /// Gets a writable span over the list's contents.
+    /// </summary>
+    public Span<T> Span => AsSpan();
+
+    /// <summary>
+    /// Provides a writable span view of the stored elements.
     /// </summary>
     /// <returns>A span referencing the list contents.</returns>
-    public ReadOnlySpan<T> AsSpan() => new((T*)_header->Data, _header->Count);
+    public Span<T> AsSpan()
+    {
+        CheckAliveThrowIfNot();
+        return new Span<T>((T*)_header->Data, _header->Count);
+    }
+
+    /// <summary>
+    /// Provides a read-only span view of the stored elements.
+    /// </summary>
+    /// <returns>A read-only span referencing the list contents.</returns>
+    public ReadOnlySpan<T> AsReadOnlySpan()
+    {
+        CheckAliveThrowIfNot();
+        return new ReadOnlySpan<T>((T*)_header->Data, _header->Count);
+    }
 }
