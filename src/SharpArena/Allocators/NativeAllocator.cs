@@ -524,7 +524,8 @@ internal static partial class Native
     // POSIX constants
     public const int PROT_NONE = 0, PROT_READ = 1, PROT_WRITE = 2;
     public const int MAP_PRIVATE = 2, MAP_ANONYMOUS = 0x20;
-
+    public const int ENOMEM = 12;
+    
 #if NET7_0_OR_GREATER
     [LibraryImport(Kernel32, SetLastError = true)]
     public static partial nint VirtualAlloc(nint lpAddress, nuint dwSize, uint flAllocationType, uint flProtect);
