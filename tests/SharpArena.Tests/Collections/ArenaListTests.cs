@@ -80,6 +80,24 @@ public class ArenaListTests : IDisposable
         Assert.Equal(3, list[0]);
     }
 
+    [Fact]
+    public void Indexer_NegativeIndex_ThrowsArgumentOutOfRangeException()
+    {
+        var list = new ArenaList<int>(_arena);
+        list.Add(1);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => _ = list[-1]);
+    }
+
+    [Fact]
+    public void Indexer_IndexEqualToLength_ThrowsArgumentOutOfRangeException()
+    {
+        var list = new ArenaList<int>(_arena);
+        list.Add(1);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => _ = list[list.Length]);
+    }
+
     public void Dispose()
     {
         _arena.Dispose();

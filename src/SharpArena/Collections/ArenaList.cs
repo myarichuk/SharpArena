@@ -71,7 +71,7 @@ public unsafe struct ArenaList<T>
     public bool IsEmpty => _header == null || _header->Count == 0;
 
     /// <summary>
-    /// Provides indexed access to the list items without bounds checks in release builds.
+    /// Provides indexed access to the list items.
     /// </summary>
     /// <param name="index">The zero-based index of the item to access.</param>
     /// <returns>A reference to the item at the requested index.</returns>
@@ -79,7 +79,11 @@ public unsafe struct ArenaList<T>
     {
         get
         {
-            Debug.Assert(index >= 0 && (uint)index < (uint)_header->Count, "out of bounds for ArenaList indexer");
+            if ((uint)index >= (uint)_header->Count)
+            {
+                throw new ArgumentOutOfRangeException(nameof(index));
+            }
+
             return ref ((T*)_header->Data)[index];
         }
     }
