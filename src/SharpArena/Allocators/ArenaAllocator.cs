@@ -21,10 +21,16 @@ public unsafe class ArenaAllocator : IDisposable
     private readonly nuint _maxSegmentSize;
     private readonly NativeAllocatorBackend _backend;
     private bool _disposed;
-
+    private int _generation = 0;
+    
     private readonly object _disposeLock = new();
     private int _activeAllocations;
 
+    /// <summary>
+    /// Returns the current generation (incremented between Reset())
+    /// </summary>
+    public int CurrentGeneration => _generation;
+    
     /// <summary>
     /// Initializes a new instance of the <see cref="ArenaAllocator"/> class.
     /// </summary>
@@ -192,6 +198,7 @@ public unsafe class ArenaAllocator : IDisposable
             }
 
             _current = _first;
+            Interlocked.Increment(ref _generation);
         }
     }
 
