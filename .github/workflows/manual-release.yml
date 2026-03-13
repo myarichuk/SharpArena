@@ -43,17 +43,40 @@ jobs:
       - name: Test
         run: dotnet test SharpArena.sln --no-build -c Release --verbosity normal
 
+      - name: Check Tag Exists
+        id: check_tag
+        run: |
+          if git ls-remote --tags origin | grep -q "refs/tags/v${{ steps.gitversion.outputs.SemVer }}$"; then
+            echo "Tag v${{ steps.gitversion.outputs.SemVer }} already exists. Skipping."
+            echo "TAG_EXISTS=true" >> $GITHUB_ENV
+          else
+            echo "TAG_EXISTS=false" >> $GITHUB_ENV
+          fi
+
+      - name: Generate Release Notes
+        if: env.TAG_EXISTS != 'true'
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -z "$PREV_TAG" ]; then
+            git log --pretty=format:"- %s" | grep -E "^- (feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)" > RELEASE_NOTES.txt || echo "Initial release" > RELEASE_NOTES.txt
+          else
+            git log ${PREV_TAG}..HEAD --pretty=format:"- %s" | grep -E "^- (feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)" > RELEASE_NOTES.txt || echo "No semantic changes" > RELEASE_NOTES.txt
+          fi
+
       - name: Tag Repository
+        if: env.TAG_EXISTS != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag v${{ steps.gitversion.outputs.SemVer }} || echo "Tag already exists"
-          git push origin v${{ steps.gitversion.outputs.SemVer }} || echo "Failed to push tag"
+          git tag v${{ steps.gitversion.outputs.SemVer }}
+          git push origin v${{ steps.gitversion.outputs.SemVer }}
 
       - name: Pack
+        if: env.TAG_EXISTS != 'true'
         run: dotnet pack src/SharpArena/SharpArena.csproj -c Release --no-build /p:PackageVersion=${{ steps.gitversion.outputs.NuGetVersionV2 }} -o ./artifacts
 
       - name: Create Release
+        if: env.TAG_EXISTS != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.gitversion.outputs.SemVer }}
@@ -62,6 +85,7 @@ jobs:
           files: ./artifacts/*.nupkg
 
       - name: Push to NuGet
+        if: env.TAG_EXISTS != 'true'
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
