@@ -98,6 +98,27 @@ public class ArenaListTests : IDisposable
         Assert.Throws<ArgumentOutOfRangeException>(() => _ = list[list.Length]);
     }
 
+    [Fact]
+    public void AccessAfterReset_ThrowsObjectDisposedException()
+    {
+        var list = new ArenaList<int>(_arena);
+        list.Add(1);
+
+        _arena.Reset();
+
+        Assert.Throws<ObjectDisposedException>(() => list.Add(2));
+        Assert.Throws<ObjectDisposedException>(() => _ = list.Length);
+        Assert.Throws<ObjectDisposedException>(() => _ = list.IsEmpty);
+        Assert.Throws<ObjectDisposedException>(() => _ = list[0]);
+        Assert.Throws<ObjectDisposedException>(() => list.Reset());
+        unsafe
+        {
+            Assert.Throws<ObjectDisposedException>(() => _ = list.AsPtr);
+        }
+        Assert.Throws<ObjectDisposedException>(() => list.AsSpan());
+        Assert.Throws<ObjectDisposedException>(() => list.AsReadOnlySpan());
+    }
+
     public void Dispose()
     {
         _arena.Dispose();

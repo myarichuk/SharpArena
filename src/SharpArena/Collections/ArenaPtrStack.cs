@@ -35,6 +35,7 @@ public unsafe struct ArenaPtrStack<T>
     where T : unmanaged
 {
     private readonly ArenaAllocator _arena;
+    private readonly int _generation;
     private readonly ArenaPtrStackHeader* _header;
 
     /// <summary>
@@ -50,6 +51,7 @@ public unsafe struct ArenaPtrStack<T>
         }
 
         _arena = arena;
+        _generation = arena.CurrentGeneration;
 
         _header = (ArenaPtrStackHeader*)arena.Alloc(
             (nuint)sizeof(ArenaPtrStackHeader),
@@ -61,6 +63,15 @@ public unsafe struct ArenaPtrStack<T>
             (nuint)initialCapacity * (nuint)sizeof(T*),
             align: (nuint)IntPtr.Size);
     }
+    
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void CheckAliveThrowIfNot()
+    {
+        if (_arena == null || _arena.CurrentGeneration != _generation)
+        {
+            throw new ObjectDisposedException(nameof(ArenaPtrStack<T>), "Arena was reset or disposed — all pointers invalid");
+        }
+    }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void ThrowInvalidOperation(string msg)
@@ -69,17 +80,38 @@ public unsafe struct ArenaPtrStack<T>
     /// <summary>
     /// Gets a value indicating whether the stack is empty.
     /// </summary>
-    public bool IsEmpty => _header->Count == 0;
+    public bool IsEmpty
+    {
+        get
+        {
+            CheckAliveThrowIfNot();
+            return _header->Count == 0;
+        }
+    }
 
     /// <summary>
     /// Gets the number of items currently stored in the stack.
     /// </summary>
-    public int Count => _header->Count;
+    public int Count
+    {
+        get
+        {
+            CheckAliveThrowIfNot();
+            return _header->Count;
+        }
+    }
 
     /// <summary>
     /// Gets the total allocated capacity of the stack.
     /// </summary>
-    public int Capacity => _header->Capacity;
+    public int Capacity
+    {
+        get
+        {
+            CheckAliveThrowIfNot();
+            return _header->Capacity;
+        }
+    }
 
     /// <summary>
     /// Pushes a pointer onto the stack, growing the backing buffer as needed.
@@ -88,6 +120,7 @@ public unsafe struct ArenaPtrStack<T>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Push(T* value)
     {
+        CheckAliveThrowIfNot();
         if (_header->Count >= _header->Capacity)
         {
             Grow();
@@ -105,6 +138,7 @@ public unsafe struct ArenaPtrStack<T>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public T* Pop()
     {
+        CheckAliveThrowIfNot();
         if (_header->Count == 0)
         {
             ThrowInvalidOperation("ArenaPtrStack underflow");
@@ -122,6 +156,7 @@ public unsafe struct ArenaPtrStack<T>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public T* Peek()
     {
+        CheckAliveThrowIfNot();
         if (_header->Count == 0)
         {
             ThrowInvalidOperation("ArenaPtrStack empty");
@@ -134,7 +169,11 @@ public unsafe struct ArenaPtrStack<T>
     /// <summary>
     /// Clears the stack contents without releasing the backing buffer.
     /// </summary>
-    public void Clear() => _header->Count = 0;
+    public void Clear()
+    {
+        CheckAliveThrowIfNot();
+        _header->Count = 0;
+    }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void Grow()
