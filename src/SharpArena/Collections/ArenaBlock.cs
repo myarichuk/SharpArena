@@ -259,9 +259,11 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
         var dst = buffer;
         for (var block = _head; block != null; block = block->Next)
         {
-            for (nuint i = 0; i < block->Count; i++)
+            if (block->Count > 0)
             {
-                *dst++ = block->Data[i];
+                var bytesToCopy = block->Count * (nuint)sizeof(T);
+                System.Buffer.MemoryCopy(block->Data, dst, bytesToCopy, bytesToCopy);
+                dst += block->Count;
             }
         }
 
