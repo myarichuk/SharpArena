@@ -67,13 +67,23 @@ public unsafe class ArenaStringTests : IDisposable
     }
 
     [Fact]
-    public void GetHashCode_ReturnsConsistentValue()
+    public void GetHashCode_ReturnsEqualForEqualContentAcrossClones()
     {
-        var text = "Test String";
-        var str1 = ArenaString.Clone(text, _arena);
+        var str1 = ArenaString.Clone("Test String", _arena);
+        var str2 = ArenaString.Clone("Test String", _arena);
 
-        var hashCode = str1.GetHashCode();
-        hashCode.Should().Be(str1.GetHashCode());
+        str1.Equals(str2).Should().BeTrue();
+        str1.GetHashCode().Should().Be(str2.GetHashCode());
+    }
+
+    [Fact]
+    public void GetHashCode_ReturnsDifferentForDifferentContent()
+    {
+        var str1 = ArenaString.Clone("Test String", _arena);
+        var str2 = ArenaString.Clone("Different", _arena);
+
+        str1.Equals(str2).Should().BeFalse();
+        str1.GetHashCode().Should().NotBe(str2.GetHashCode());
     }
 
     [Fact]

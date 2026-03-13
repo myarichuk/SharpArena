@@ -85,7 +85,18 @@ public readonly unsafe struct ArenaString(char* ptr, int len)
         obj is ArenaString s && Equals(s);
 
     /// <inheritdoc />
-    public override int GetHashCode() => HashCode.Combine((nint)ptr, len);
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(len);
+
+        foreach (var ch in AsSpan())
+        {
+            hash.Add(ch);
+        }
+
+        return hash.ToHashCode();
+    }
 
     /// <summary>
     /// Creates a new <see cref="ArenaString"/> that references a subrange of the current buffer.

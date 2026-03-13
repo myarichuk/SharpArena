@@ -32,6 +32,8 @@ ReadOnlySpan<char> span = str;
 // Or explicitly converted back to a managed string
 Console.WriteLine(str.ToString());
 ```
+
+`ArenaString` equality and hash codes are both content-based (character data + length), so separately cloned but equal text compares and hashes the same.
 **When to use:** Use `ArenaString` when you need to store substrings, tokens, or parsed text during parsing or processing without creating `System.String` allocations for every token.
 
 ### ArenaList
