@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 #if DEBUG
 using System.Collections.Concurrent;
 using System.Diagnostics;
+// ReSharper disable InconsistentNaming
 #endif
 
 namespace SharpArena.Allocators;
@@ -84,24 +85,22 @@ public static unsafe class NativeAllocator
 #if DEBUG
     private static readonly ConcurrentDictionary<nint, AllocationInfo> _active = new();
 
-    private readonly struct AllocationInfo
+    private readonly struct AllocationInfo(
+        nint rawPtr,
+        nuint reservedSize,
+        nuint guardPrefix,
+        NativeAllocatorBackend backend)
     {
-        public AllocationInfo(nint rawPtr, nuint reservedSize, nuint guardPrefix, NativeAllocatorBackend backend)
-        {
-            RawPtr = rawPtr;
-            ReservedSize = reservedSize;
-            GuardPrefix = guardPrefix;
-            Backend = backend;
-        }
+        public nint RawPtr { get; } = rawPtr;
 
-        public nint RawPtr { get; }
+        public nuint ReservedSize { get; } = reservedSize;
 
-        public nuint ReservedSize { get; }
+        // ReSharper disable once MemberCanBePrivate.Local
+        public nuint GuardPrefix { get; } = guardPrefix;
 
-        public nuint GuardPrefix { get; }
+        public NativeAllocatorBackend Backend { get; } = backend;
 
-        public NativeAllocatorBackend Backend { get; }
-
+        // ReSharper disable once UnusedMember.Local
         public AllocationHeader* Header
             => (AllocationHeader*)((byte*)RawPtr + GuardPrefix);
     }
@@ -157,7 +156,7 @@ public static unsafe class NativeAllocator
 #if NET8_0_OR_GREATER
             NativeAllocatorBackend.DotNetUnmanaged => NativeMemory.Alloc(total),
 #else
-            NativeAllocatorBackend.DotNetUnmanaged => (void*)Marshal.AllocHGlobal((IntPtr)checked((nint)total)),
+            NativeAllocatorBackend.DotNetUnmanaged => (void*)Marshal.AllocHGlobal(checked((nint)total)),
 #endif
             _ when IsWindowsPlatform()
                 => (void*)Native.VirtualAlloc(0, alignedTotal, Native.MEM_RESERVE | Native.MEM_COMMIT, Native.PAGE_READWRITE),
@@ -284,7 +283,7 @@ public static unsafe class NativeAllocator
 #if NET8_0_OR_GREATER
                 NativeMemory.Free((void*)rawPtr);
 #else
-                Marshal.FreeHGlobal((IntPtr)rawPtr);
+                Marshal.FreeHGlobal(rawPtr);
 #endif
                 return;
 
@@ -296,7 +295,7 @@ public static unsafe class NativeAllocator
                         ThrowLastError("VirtualFree failed");
                     }
                 }
-                else if (Native.munmap((IntPtr)rawPtr, reservedSize) != 0)
+                else if (Native.munmap(rawPtr, reservedSize) != 0)
                 {
                     ThrowLastError("munmap failed");
                 }
@@ -464,7 +463,6 @@ public static unsafe class NativeAllocator
                 }
 
                 alignedLength -= delta;
-                end = userEnd;
             }
 
             if (alignedLength == 0)
@@ -517,7 +515,7 @@ public static unsafe class NativeAllocator
 
 internal static partial class Native
 {
-    public const string Kernel32 = "kernel32.dll";
+    private const string Kernel32 = "kernel32.dll";
 
     // Win32 constants
     public const uint MEM_COMMIT = 0x1000, MEM_RESERVE = 0x2000, MEM_RELEASE = 0x8000, MEM_FREE = 0x10000;
@@ -526,7 +524,6 @@ internal static partial class Native
     // POSIX constants
     public const int PROT_NONE = 0, PROT_READ = 1, PROT_WRITE = 2;
     public const int MAP_PRIVATE = 2, MAP_ANONYMOUS = 0x20;
-    public const int ENOMEM = 12;
 
 #if NET7_0_OR_GREATER
     [LibraryImport(Kernel32, SetLastError = true)]
