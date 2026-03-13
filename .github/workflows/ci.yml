@@ -49,7 +49,7 @@ jobs:
         run: dotnet test SharpArena.sln --no-build -c Release --verbosity normal
 
       - name: Check Tag Exists
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gitversion.outputs.CommitsSinceVersionSource == '0'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         id: check_tag
         run: |
           if git ls-remote --tags origin | grep -q "refs/tags/v${{ steps.gitversion.outputs.SemVer }}$"; then
@@ -60,7 +60,7 @@ jobs:
           fi
 
       - name: Generate Release Notes
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gitversion.outputs.CommitsSinceVersionSource == '0' && env.TAG_EXISTS != 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.TAG_EXISTS != 'true'
         run: |
           PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
           if [ -z "$PREV_TAG" ]; then
@@ -70,7 +70,7 @@ jobs:
           fi
 
       - name: Tag Repository
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gitversion.outputs.CommitsSinceVersionSource == '0' && env.TAG_EXISTS != 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.TAG_EXISTS != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -78,11 +78,11 @@ jobs:
           git push origin v${{ steps.gitversion.outputs.SemVer }}
 
       - name: Pack
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gitversion.outputs.CommitsSinceVersionSource == '0' && env.TAG_EXISTS != 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.TAG_EXISTS != 'true'
         run: dotnet pack src/SharpArena/SharpArena.csproj -c Release --no-build /p:PackageVersion=${{ steps.gitversion.outputs.NuGetVersionV2 }} -o ./artifacts
 
       - name: Create Release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gitversion.outputs.CommitsSinceVersionSource == '0' && env.TAG_EXISTS != 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.TAG_EXISTS != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.gitversion.outputs.SemVer }}
@@ -91,7 +91,7 @@ jobs:
           files: ./artifacts/*.nupkg
 
       - name: Push to NuGet
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gitversion.outputs.CommitsSinceVersionSource == '0' && env.TAG_EXISTS != 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.TAG_EXISTS != 'true'
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
