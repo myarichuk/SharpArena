@@ -62,18 +62,17 @@ public static unsafe class NativeAllocator
 #if DEBUG
         AppDomain.CurrentDomain.ProcessExit += (_, _) =>
         {
-            var activeAllocationSnapshot = _active.ToList();
-            if (activeAllocationSnapshot.Count > 0)
+            if (!_active.IsEmpty)
             {
-                Console.Error.WriteLine($"[NativeAllocator] { activeAllocationSnapshot.Count } allocation(s) not freed before process exit:");
-                foreach (var kv in activeAllocationSnapshot)
+                Console.Error.WriteLine($"[NativeAllocator] { _active.Count } allocation(s) not freed before process exit:");
+                foreach (var kv in _active)
                 {
                     var info = kv.Value;
                     Console.Error.WriteLine($"  -> Leak at 0x{kv.Key:X}, size {info.ReservedSize} bytes, backend {info.Backend}");
                 }
             }
 
-            Debug.Assert(activeAllocationSnapshot.Count == 0, "having _active.Count > 0 at process shutdown means we have a leak. THIS IS BAD!");
+            Debug.Assert(_active.IsEmpty, "having _active.Count > 0 at process shutdown means we have a leak. THIS IS BAD!");
         };
 #endif
     }
