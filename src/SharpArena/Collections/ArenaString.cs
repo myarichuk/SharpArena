@@ -172,7 +172,7 @@ public readonly unsafe struct ArenaString
             throw new ArgumentOutOfRangeException(nameof(length), "Slice length must be non-negative.");
         }
 
-        if (length > _len - start)
+        if ((long)(uint)start + (long)(uint)length > (long)(uint)_len)
         {
             throw new ArgumentOutOfRangeException(nameof(length), "Slice range must be within the string bounds.");
         }
