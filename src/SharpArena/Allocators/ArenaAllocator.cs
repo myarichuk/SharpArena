@@ -30,7 +30,7 @@ public unsafe class ArenaAllocator : IDisposable
     /// <summary>
     /// Returns the current generation (incremented between Reset())
     /// </summary>
-    public int CurrentGeneration => _generation;
+    public int CurrentGeneration => Volatile.Read(ref _generation);
     
     /// <summary>
     /// Initializes a new instance of the <see cref="ArenaAllocator"/> class.

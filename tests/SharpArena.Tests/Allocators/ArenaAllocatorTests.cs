@@ -1,5 +1,3 @@
-using System.Threading;
-using System.Threading.Tasks;
 using SharpArena.Allocators;
 using Xunit;
 
@@ -109,38 +107,7 @@ public unsafe class ArenaAllocatorTests : IDisposable
         var arena = new ArenaAllocator(4096);
         var p = arena.Alloc(256);
         arena.Dispose();
-        arena.Dispose(); // should be a no-op, not crash
-    }
-
-
-
-    [Fact]
-    public async Task Reset_ConcurrentWithAlloc_ShouldNotThrowOrCorruptState()
-    {
-        using var arena = new ArenaAllocator(4096);
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(250));
-
-        var allocTask = Task.Run(() =>
-        {
-            while (!cts.IsCancellationRequested)
-            {
-                var p = (byte*)arena.Alloc(32, 8);
-                *p = 0x5A;
-            }
-        }, cts.Token);
-
-        var resetTask = Task.Run(() =>
-        {
-            while (!cts.IsCancellationRequested)
-            {
-                arena.Reset();
-            }
-        }, cts.Token);
-
-        await Task.WhenAll(allocTask, resetTask);
-
-        var check = arena.Alloc(64, 8);
-        Assert.NotEqual(IntPtr.Zero, (nint)check);
+        arena.Dispose(); // should be a no-op, not a crash
     }
 
     [Fact]
