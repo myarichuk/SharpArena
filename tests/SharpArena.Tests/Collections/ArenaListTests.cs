@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using SharpArena.Allocators;
 using SharpArena.Collections;
 using Xunit;
@@ -48,6 +50,28 @@ public class ArenaListTests : IDisposable
         {
             Assert.Equal(i + 1, list[i]);
         }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ArenaListLayout
+    {
+        public ArenaAllocator _arena;
+        public int _generation;
+        public unsafe ArenaListHeader* _header;
+    }
+
+    [Fact]
+    public unsafe void Add_CapacityOverflow_ThrowsInvalidOperationException()
+    {
+        var list = new ArenaList<int>(_arena, initialCapacity: 4);
+
+        // Access internal layout to modify capacity without allocating 1GB of actual memory
+        ref ArenaListLayout layout = ref Unsafe.As<ArenaList<int>, ArenaListLayout>(ref list);
+        layout._header->Capacity = (int.MaxValue / 2) + 1;
+        layout._header->Count = layout._header->Capacity;
+
+        var ex = Assert.Throws<InvalidOperationException>(() => list.Add(1));
+        Assert.Equal("ArenaList capacity overflow.", ex.Message);
     }
 
     [Fact]
