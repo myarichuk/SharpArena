@@ -59,8 +59,15 @@ public unsafe struct ArenaPtrStack<T>
 
         _header->Count = 0;
         _header->Capacity = initialCapacity;
+
+        ulong byteCount = (ulong)(uint)initialCapacity * (ulong)sizeof(T*);
+        if (byteCount != (ulong)(nuint)byteCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(initialCapacity), "Initial capacity exceeds addressable memory.");
+        }
+
         _header->Data = arena.Alloc(
-            (nuint)initialCapacity * (nuint)sizeof(T*),
+            (nuint)byteCount,
             align: (nuint)IntPtr.Size);
     }
     
@@ -178,21 +185,31 @@ public unsafe struct ArenaPtrStack<T>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void Grow()
     {
-        if (_header->Capacity > int.MaxValue / 2)
+        int oldCap = _header->Capacity;
+        if (oldCap >= int.MaxValue)
         {
             ThrowInvalidOperation("ArenaPtrStack capacity overflow");
         }
 
-        var newCap = (nuint)_header->Capacity * 2;
-        var newPtr = _arena.Alloc(newCap * (nuint)sizeof(T*), align: (nuint)IntPtr.Size);
+        int newCap = oldCap > int.MaxValue / 2 ? int.MaxValue : oldCap * 2;
+        ulong byteCount = (ulong)(uint)newCap * (ulong)sizeof(T*);
+        ulong oldByteCount = (ulong)(uint)_header->Count * (ulong)sizeof(T*);
 
-        Unsafe.CopyBlockUnaligned(
-            destination: newPtr,
+        if (byteCount != (ulong)(nuint)byteCount)
+        {
+            ThrowInvalidOperation("ArenaPtrStack capacity exceeds addressable memory");
+        }
+
+        var newPtr = _arena.Alloc((nuint)byteCount, align: (nuint)IntPtr.Size);
+
+        Buffer.MemoryCopy(
             source: _header->Data,
-            byteCount: (uint)(_header->Count * sizeof(T*)));
+            destination: newPtr,
+            destinationSizeInBytes: byteCount,
+            sourceBytesToCopy: oldByteCount);
 
         _header->Data = newPtr;
-        _header->Capacity = (int)newCap;
+        _header->Capacity = newCap;
     }
 
 }

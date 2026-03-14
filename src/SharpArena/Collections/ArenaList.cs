@@ -59,8 +59,15 @@ public unsafe struct ArenaList<T>
         _header = (ArenaListHeader*)arena.Alloc((nuint)sizeof(ArenaListHeader), align: (nuint)IntPtr.Size);
         _header->Count = 0;
         _header->Capacity = initialCapacity;
+
+        ulong byteCount = (ulong)(uint)initialCapacity * (ulong)sizeof(T);
+        if (byteCount != (ulong)(nuint)byteCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(initialCapacity), "Initial capacity exceeds addressable memory.");
+        }
+
         _header->Data = (T*)arena.Alloc(
-            (nuint)initialCapacity * (nuint)sizeof(T),
+            (nuint)byteCount,
             align: (nuint)UnsafeHelpers.AlignOf<T>());
     }
 
@@ -132,18 +139,30 @@ public unsafe struct ArenaList<T>
 
     private void Grow()
     {
-        if (_header->Capacity > int.MaxValue / 2)
+        int oldCap = _header->Capacity;
+        if (oldCap >= int.MaxValue)
         {
             throw new InvalidOperationException("ArenaList capacity overflow.");
         }
 
-        var newCap = (nuint)_header->Capacity * 2;
+        int newCap = oldCap > int.MaxValue / 2 ? int.MaxValue : oldCap * 2;
+        ulong byteCount = (ulong)(uint)newCap * (ulong)sizeof(T);
+        ulong oldByteCount = (ulong)(uint)_header->Count * (ulong)sizeof(T);
+
+        if (byteCount != (ulong)(nuint)byteCount)
+        {
+            // If even with int.MaxValue we exceed nuint (rare on 64-bit, possible on 32-bit if T is large)
+            throw new OverflowException("ArenaList capacity exceeds addressable memory.");
+        }
+
         var newPtr = _arena.Alloc(
-            newCap * (nuint)sizeof(T),
+            (nuint)byteCount,
             align: (nuint)UnsafeHelpers.AlignOf<T>());
-        Unsafe.CopyBlockUnaligned(newPtr, _header->Data, (uint)(_header->Count * sizeof(T)));
+
+        Buffer.MemoryCopy(_header->Data, newPtr, byteCount, oldByteCount);
+
         _header->Data = newPtr;
-        _header->Capacity = (int)newCap;
+        _header->Capacity = newCap;
     }
 
     /// <summary>
