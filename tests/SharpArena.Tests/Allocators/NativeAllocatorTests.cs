@@ -56,6 +56,21 @@ public unsafe class NativeAllocatorTests
     [Theory]
     [InlineData(NativeAllocatorBackend.DotNetUnmanaged)]
     [InlineData(NativeAllocatorBackend.PlatformInvoke)]
+    public void Alloc_Overflow_ShouldThrowOutOfMemoryException(NativeAllocatorBackend backend)
+    {
+#if NET7_0_OR_GREATER
+        nuint max = nuint.MaxValue;
+#else
+        nuint max = unchecked((nuint)ulong.MaxValue);
+#endif
+        var ex = Record.Exception(() => NativeAllocator.Alloc(max - 10, backend));
+        Assert.NotNull(ex);
+        Assert.IsType<OutOfMemoryException>(ex);
+    }
+
+    [Theory]
+    [InlineData(NativeAllocatorBackend.DotNetUnmanaged)]
+    [InlineData(NativeAllocatorBackend.PlatformInvoke)]
     public void DoubleFree_ShouldNotCrash(NativeAllocatorBackend backend)
     {
         var ptr = NativeAllocator.Alloc(PageSize, backend);
