@@ -155,13 +155,27 @@ public unsafe struct ArenaList<T>
             throw new InvalidOperationException("ArenaList capacity overflow.");
         }
 
-        var newCap = (nuint)_header->Capacity * 2;
+        int newCap = _header->Capacity * 2;
+        ulong byteCount = (ulong)(uint)newCap * (ulong)sizeof(T);
+        ulong oldByteCount = (ulong)(uint)_header->Count * (ulong)sizeof(T);
+
+        if (byteCount != (ulong)(nuint)byteCount)
+        {
+            throw new InvalidOperationException("ArenaList capacity exceeds addressable memory.");
+        }
+
         var newPtr = _arena.Alloc(
-            newCap * (nuint)sizeof(T),
+            (nuint)byteCount,
             align: (nuint)UnsafeHelpers.AlignOf<T>());
-        Unsafe.CopyBlockUnaligned(newPtr, _header->Data, (uint)(_header->Count * sizeof(T)));
+
+        Buffer.MemoryCopy(
+            source: _header->Data,
+            destination: newPtr,
+            destinationSizeInBytes: byteCount,
+            sourceBytesToCopy: oldByteCount);
+
         _header->Data = newPtr;
-        _header->Capacity = (int)newCap;
+        _header->Capacity = newCap;
     }
 
     /// <summary>
