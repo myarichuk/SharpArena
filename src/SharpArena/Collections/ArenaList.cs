@@ -59,6 +59,13 @@ public unsafe struct ArenaList<T>
         _header = (ArenaListHeader*)arena.Alloc((nuint)sizeof(ArenaListHeader), align: (nuint)IntPtr.Size);
         _header->Count = 0;
         _header->Capacity = initialCapacity;
+
+        ulong byteCount = (ulong)(uint)initialCapacity * (ulong)sizeof(T);
+        if (byteCount != (ulong)(nuint)byteCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(initialCapacity), "Initial capacity exceeds addressable memory.");
+        }
+
         _header->Data = (T*)arena.Alloc(
             (nuint)initialCapacity * (nuint)sizeof(T),
             align: (nuint)UnsafeHelpers.AlignOf<T>());
@@ -138,7 +145,7 @@ public unsafe struct ArenaList<T>
         var newPtr = _arena.Alloc(
             newCap * (nuint)sizeof(T),
             align: (nuint)UnsafeHelpers.AlignOf<T>());
-        System.Buffer.MemoryCopy(_header->Data, newPtr, newCap * (nuint)sizeof(T), (uint)(_header->Count * sizeof(T)));
+        Unsafe.CopyBlockUnaligned(newPtr, _header->Data, (uint)(_header->Count * sizeof(T)));
         _header->Data = newPtr;
         _header->Capacity = (int)newCap;
     }
