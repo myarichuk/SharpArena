@@ -134,6 +134,11 @@ public static unsafe class NativeAllocator
             return null;
         }
 
+        if (size > nuint.MaxValue - HeaderSize)
+        {
+            throw new OutOfMemoryException("Native allocation failed due to integer overflow.");
+        }
+
         nuint total;
         nuint alignedTotal;
         nuint guardPrefix = 0;
