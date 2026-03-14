@@ -72,10 +72,7 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void CheckAliveThrowIfNot()
     {
-        if (_arena == null || _arena.CurrentGeneration != _generation)
-        {
-            throw new ObjectDisposedException(nameof(ArenaBlockList<T>), "Arena was reset or disposed — all pointers invalid");
-        }
+        UnsafeHelpers.CheckAliveThrowIfNot(_arena, _generation, nameof(ArenaBlockList<T>));
     }
 
     private static ArenaBlock<T>* CreateBlock(ArenaAllocator arena, nuint capacity)

@@ -67,10 +67,7 @@ public unsafe struct ArenaList<T>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void CheckAliveThrowIfNot()
     {
-        if (_arena == null || _arena.CurrentGeneration != _generation)
-        {
-            throw new ObjectDisposedException(nameof(ArenaList<T>), "Arena was reset or disposed — all pointers invalid");
-        }
+        UnsafeHelpers.CheckAliveThrowIfNot(_arena, _generation, nameof(ArenaList<T>));
     }
 
     /// <summary>
