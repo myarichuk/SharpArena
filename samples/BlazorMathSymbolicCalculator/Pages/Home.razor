@@ -1,0 +1,161 @@
+@page "/"
+@implements IDisposable
+@using SimpleMathParser
+@using SharpArena.Allocators
+@using SharpArena.Collections
+
+<PageTitle>SharpArena - Math Calculator</PageTitle>
+
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-8 offset-md-2">
+            <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                    <h4 class="mb-0">Symbolic Math Calculator</h4>
+                    <span class="badge bg-light text-dark">Zero GC / WASM native</span>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted">
+                        Powered by <strong>SharpArena</strong>. Parses and evaluates expressions using an arena allocator,
+                        resulting in zero managed allocations during evaluation.
+                    </p>
+
+                    <div class="mb-3">
+                        <label for="expressionInput" class="form-label fw-bold">Expression:</label>
+                        <input type="text" id="expressionInput" class="form-control" @bind="Expression" placeholder="e.g. 2 + 3 * x or (10 / 2) + y" @onkeyup="HandleKeyUp" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="variablesInput" class="form-label fw-bold">Variables (Optional):</label>
+                        <textarea id="variablesInput" class="form-control" rows="2" @bind="VariablesText" placeholder="x=10, y=5"></textarea>
+                        <div class="form-text">Comma-separated key=value pairs.</div>
+                    </div>
+
+                    <div class="d-flex gap-2 mb-4">
+                        <button class="btn btn-success" @onclick="EvaluateExpression">Evaluate</button>
+                        <button class="btn btn-outline-danger" @onclick="Clear">Clear</button>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(ErrorMessage))
+                    {
+                        <div class="alert alert-danger">
+                            <strong>Error:</strong> @ErrorMessage
+                        </div>
+                    }
+
+                    <div class="mt-4">
+                        <h5>History</h5>
+                        @if (History.Count == 0)
+                        {
+                            <p class="text-muted fst-italic">No history yet.</p>
+                        }
+                        else
+                        {
+                            <ul class="list-group">
+                                @foreach (var item in History)
+                                {
+                                    <li class="list-group-item">@item</li>
+                                }
+                            </ul>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string Expression { get; set; } = "2 + 3 * x";
+    private string VariablesText { get; set; } = "x=10";
+    private string ErrorMessage { get; set; } = "";
+    private List<string> History { get; set; } = new();
+
+#if NET8_0_OR_GREATER
+    private ArenaAllocator _arena = new ArenaAllocator(backend: NativeAllocatorBackend.DotNetUnmanaged);
+#else
+    private ArenaAllocator _arena = new ArenaAllocator(backend: NativeAllocatorBackend.NativeMemory); // will default to DotNetUnmanaged fallback or PlatformInvoke internally depending on SharpArena version
+#endif
+
+    public void Dispose()
+    {
+        _arena.Dispose();
+    }
+
+    private void HandleKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            EvaluateExpression();
+        }
+    }
+
+    private void EvaluateExpression()
+    {
+        ErrorMessage = "";
+
+        if (string.IsNullOrWhiteSpace(Expression))
+            return;
+
+        try
+        {
+            // Reset the arena for this evaluation
+            _arena.Reset();
+
+            string exprToParse = Expression;
+
+            // Simple variable substitution
+            if (!string.IsNullOrWhiteSpace(VariablesText))
+            {
+                var pairs = VariablesText.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (var pair in pairs)
+                {
+                    var kvp = pair.Split(new[] { '=' }, 2, StringSplitOptions.RemoveEmptyEntries);
+                    if (kvp.Length == 2)
+                    {
+                        string key = kvp[0].Trim();
+                        string val = kvp[1].Trim();
+
+                        // Replace whole words to avoid partial matching
+                        // For a simple demo, string.Replace is okay, but let's do simple naive replace for now
+                        exprToParse = exprToParse.Replace(key, val);
+                    }
+                }
+            }
+
+            var tokens = ArenaMathParser.Tokenize(exprToParse, _arena);
+            double result = ArenaMathParser.Evaluate(tokens, _arena);
+
+            string historyEntry = $"{Expression} = {result}";
+            if (exprToParse != Expression)
+            {
+                historyEntry += $"  (with {VariablesText})";
+            }
+
+            History.Insert(0, historyEntry);
+
+            // Keep only the last 10 entries
+            if (History.Count > 10)
+            {
+                History.RemoveAt(History.Count - 1);
+            }
+        }
+        catch (SyntaxErrorException ex)
+        {
+            ErrorMessage = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Unexpected error: {ex.Message}";
+        }
+    }
+
+    private void Clear()
+    {
+        Expression = "";
+        VariablesText = "";
+        ErrorMessage = "";
+        History.Clear();
+        _arena.Reset();
+    }
+}

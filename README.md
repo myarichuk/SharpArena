@@ -6,37 +6,27 @@ Zero-alloc arena allocator + collections for high-perf parsers.
 ## Samples
 
 Check out the samples directory for complete, end-to-end examples of building a math expression parser with zero managed allocations (outside the arena).
+**Now with Blazor WebAssembly demo — zero managed allocations in the browser**
 
 - [**SimpleMathParser**](samples/SimpleMathParser/) [![Try SimpleMathParser](https://img.shields.io/badge/Try%20it-SimpleMathParser-blue)](samples/SimpleMathParser/): A standard .NET console app using `ArenaList`, `ArenaPtrStack`, and `ArenaString` to tokenize and evaluate expressions.
-- [**WasmMathParser**](samples/WasmMathParser/) [![Try WasmMathParser](https://img.shields.io/badge/Try%20it-WasmMathParser-orange)](samples/WasmMathParser/): The exact same logic but compiled to a `wasi-wasm` target. **SharpArena works in WASM out-of-the-box (unlike Varena, which requires virtual memory OS APIs)**.
+- [**BlazorMathSymbolicCalculator**](samples/BlazorMathSymbolicCalculator/) [![Try BlazorMathSymbolicCalculator](https://img.shields.io/badge/Try%20it-BlazorMathSymbolicCalculator-purple)](samples/BlazorMathSymbolicCalculator/): A symbolic calculator Blazor WebAssembly app evaluating math equations in-browser natively without garbage collection.
 
-## Running the WASM Sample
+### Reusable Parser Example
+The `ArenaMathParser` extracted for the above samples showcases reusing arena allocations efficiently:
 
-To run the `WasmMathParser` example, you need a WebAssembly runtime that supports the WebAssembly System Interface (WASI). We recommend **Wasmtime**.
+```csharp
+using SharpArena.Allocators;
 
-### 1. Install Wasmtime
-Helper scripts to automate the installation are located in the `samples/WasmMathParser` directory.
+using var arena = new ArenaAllocator();
 
-- **Windows (PowerShell):**
-  ```powershell
-  cd samples/WasmMathParser
-  .\install-wasmtime.ps1
-  ```
-- **Linux/macOS (Bash):**
-  ```bash
-  cd samples/WasmMathParser
-  ./install-wasmtime.sh
-  ```
-Follow the on-screen instructions to complete the installation and configure your shell's `PATH`.
+// Tokenize the mathematical string into unmanaged tokens inside the arena
+var tokens = ArenaMathParser.Tokenize("2 + 3 * x".Replace("x", "10"), arena);
 
-### 2. Run the Parser
-Once Wasmtime is installed, build the project and run the compiled `.wasm` file:
-```bash
-# Build the project
-dotnet build -c Release
+// Evaluate safely allocating on the unmanaged stack internally
+double result = ArenaMathParser.Evaluate(tokens, arena);
 
-# Run with Wasmtime
-wasmtime run ./samples/WasmMathParser/bin/Release/net10.0/wasi-wasm/WasmMathParser.wasm
+// Resets pointers and drops all tokens without GC involvement
+arena.Reset();
 ```
 
 ## Usage
