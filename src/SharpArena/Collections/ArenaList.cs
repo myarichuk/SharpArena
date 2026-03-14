@@ -159,7 +159,11 @@ public unsafe struct ArenaList<T>
         var newPtr = _arena.Alloc(
             newCap * (nuint)sizeof(T),
             align: (nuint)UnsafeHelpers.AlignOf<T>());
-        Unsafe.CopyBlockUnaligned(newPtr, _header->Data, (uint)(_header->Count * sizeof(T)));
+
+        ulong bytesToCopy = (ulong)(uint)_header->Count * (ulong)sizeof(T);
+        ulong destBytes = (ulong)newCap * (ulong)sizeof(T);
+        System.Buffer.MemoryCopy(_header->Data, newPtr, destBytes, bytesToCopy);
+
         _header->Data = newPtr;
         _header->Capacity = (int)newCap;
     }
