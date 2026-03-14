@@ -56,6 +56,15 @@ public unsafe class ArenaAllocatorTests : IDisposable
     }
 
     [Fact]
+    public void Alloc_AfterDispose_ShouldThrowObjectDisposedException()
+    {
+        var arena = new ArenaAllocator();
+        arena.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(() => arena.Alloc(64));
+    }
+
+    [Fact]
     public void Dispose_ShouldFreeAllSegmentsWithoutCrash()
     {
         ArenaAllocator? arena = null;
