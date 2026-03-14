@@ -9,6 +9,7 @@ namespace SharpArena.Collections;
 /// A non-owning view of UTF-16 text stored in unmanaged (arena) memory.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
+[System.Diagnostics.DebuggerDisplay("{ToString()}")]
 public readonly unsafe struct ArenaString
 {
     private readonly char* _ptr;
@@ -196,4 +197,60 @@ public readonly unsafe struct ArenaString
     /// <returns><see langword="true"/> when the strings differ; otherwise, <see langword="false"/>.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool operator !=(ArenaString left, ArenaString right) => !left.Equals(right);
+
+    /// <summary>
+    /// Concatenates two arena strings into a new arena string allocated in the same arena.
+    /// </summary>
+    /// <param name="left">The first string.</param>
+    /// <param name="right">The second string.</param>
+    /// <returns>A new <see cref="ArenaString"/> containing the concatenated characters.</returns>
+    /// <exception cref="ArgumentException">Thrown when the strings belong to different arenas.</exception>
+    public static ArenaString operator +(ArenaString left, ArenaString right)
+    {
+        if (left.IsEmpty && right.IsEmpty)
+        {
+            return default;
+        }
+
+        if (left.IsEmpty)
+        {
+            return right;
+        }
+
+        if (right.IsEmpty)
+        {
+            return left;
+        }
+
+        if (left._arena != right._arena)
+        {
+            throw new ArgumentException("Cannot concatenate ArenaStrings from different arenas.");
+        }
+
+        left.CheckAliveThrowIfNot();
+        right.CheckAliveThrowIfNot();
+
+        if ((long)(uint)left._len + (long)(uint)right._len > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(left), "Concatenated string length exceeds maximum length.");
+        }
+
+        int newLen = left._len + right._len;
+        ulong bytes = (ulong)(uint)newLen * (ulong)sizeof(char);
+        if (bytes != (ulong)(nuint)bytes)
+        {
+            throw new ArgumentOutOfRangeException(nameof(left), "Concatenated string size exceeds addressable memory.");
+        }
+
+        var arena = left._arena;
+        var dest = (char*)arena.Alloc((nuint)bytes, align: (nuint)UnsafeHelpers.AlignOf<char>());
+
+        var leftSpan = left.AsSpan();
+        var rightSpan = right.AsSpan();
+
+        leftSpan.CopyTo(new Span<char>(dest, leftSpan.Length));
+        rightSpan.CopyTo(new Span<char>(dest + leftSpan.Length, rightSpan.Length));
+
+        return new ArenaString(arena, dest, newLen);
+    }
 }

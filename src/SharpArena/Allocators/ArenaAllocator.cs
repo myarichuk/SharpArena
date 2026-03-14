@@ -24,11 +24,38 @@ public unsafe class ArenaAllocator : IDisposable
     private readonly object _disposeLock = new();
     private int _activeAllocations;
     private int _resetInProgress;
+    private nuint _peakBytes;
 
     /// <summary>
     /// Returns the current generation (incremented between Reset())
     /// </summary>
     public int CurrentGeneration => Volatile.Read(ref _generation);
+
+    /// <summary>
+    /// Gets the total number of bytes currently allocated from the arena.
+    /// </summary>
+    public nuint AllocatedBytes
+    {
+        get
+        {
+            nuint total = 0;
+            var current = _current;
+            for (var seg = _first; seg != null; seg = seg->Next)
+            {
+                total += seg->Offset;
+                if (seg == current)
+                {
+                    break;
+                }
+            }
+            return total;
+        }
+    }
+
+    /// <summary>
+    /// Gets the peak number of bytes allocated from the arena over its lifetime.
+    /// </summary>
+    public nuint PeakBytes => _peakBytes > AllocatedBytes ? _peakBytes : AllocatedBytes;
     
     /// <summary>
     /// Initializes a new instance of the <see cref="ArenaAllocator"/> class.
@@ -214,6 +241,12 @@ public unsafe class ArenaAllocator : IDisposable
                 while (Volatile.Read(ref _activeAllocations) != 0)
                 {
                     spinner.SpinOnce();
+                }
+
+                var currentAllocated = AllocatedBytes;
+                if (currentAllocated > _peakBytes)
+                {
+                    _peakBytes = currentAllocated;
                 }
 
                 for (var seg = _first; seg != null; seg = seg->Next)

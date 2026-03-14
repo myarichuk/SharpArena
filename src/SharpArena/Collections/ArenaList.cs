@@ -34,11 +34,13 @@ public unsafe struct ArenaListHeader
 /// </summary>
 /// <typeparam name="T">The unmanaged element type stored in the list.</typeparam>
 [StructLayout(LayoutKind.Sequential)]
+[System.Diagnostics.DebuggerDisplay("Length = {Length}, Capacity = {Capacity}")]
 public unsafe struct ArenaList<T>
     where T : unmanaged
 {
     private readonly ArenaAllocator _arena; // class reference – fine
     private readonly int _generation;
+    internal ArenaListHeader* Header => _header;
     private ArenaListHeader* _header;
 
     /// <summary>
@@ -86,6 +88,18 @@ public unsafe struct ArenaList<T>
         {
             CheckAliveThrowIfNot();
             return _header != null ? _header->Count : 0;
+        }
+    }
+
+    /// <summary>
+    /// Gets the allocated capacity of the list.
+    /// </summary>
+    public int Capacity
+    {
+        get
+        {
+            CheckAliveThrowIfNot();
+            return _header != null ? _header->Capacity : 0;
         }
     }
 
