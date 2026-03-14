@@ -39,10 +39,7 @@ public readonly unsafe struct ArenaString
             return;
         }
 
-        if (_arena == null || _arena.CurrentGeneration != _generation)
-        {
-            throw new ObjectDisposedException(nameof(ArenaString), "Arena was reset or disposed — all pointers invalid");
-        }
+        UnsafeHelpers.CheckAliveThrowIfNot(_arena, _generation, nameof(ArenaString));
     }
 
     /// <summary>
