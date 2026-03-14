@@ -3,6 +3,13 @@ Zero-alloc arena allocator + collections for high-perf parsers.
 
 *This is a pet project originally written for a JsonPath parser as a challenge, but I decided to keep it as a separate lib because I think it's useful.*
 
+## Samples
+
+Check out the samples directory for complete, end-to-end examples of building a math expression parser with zero managed allocations (outside the arena).
+
+- [**SimpleMathParser**](samples/SimpleMathParser/) [![Try SimpleMathParser](https://img.shields.io/badge/Try%20it-SimpleMathParser-blue)](samples/SimpleMathParser/): A standard .NET console app using `ArenaList`, `ArenaPtrStack`, and `ArenaString` to tokenize and evaluate expressions.
+- [**WasmMathParser**](samples/WasmMathParser/) [![Try WasmMathParser](https://img.shields.io/badge/Try%20it-WasmMathParser-orange)](samples/WasmMathParser/): The exact same logic but compiled to a `wasi-wasm` target. **SharpArena works in WASM out-of-the-box (unlike Varena, which requires virtual memory OS APIs)**.
+
 ## Usage
 ```csharp
 using SharpArena.Allocators;
