@@ -107,7 +107,7 @@ public unsafe class ArenaAllocatorTests : IDisposable
         var arena = new ArenaAllocator(4096);
         var p = arena.Alloc(256);
         arena.Dispose();
-        arena.Dispose(); // should be a no-op, not crash
+        arena.Dispose(); // should be a no-op, not a crash
     }
 
     [Fact]
