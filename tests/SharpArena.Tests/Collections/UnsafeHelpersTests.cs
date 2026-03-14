@@ -8,50 +8,39 @@ namespace SharpArena.Tests.Collections;
 public class UnsafeHelpersTests
 {
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    private struct Size9Struct
-    {
-        public long A;
-        public byte B;
-    }
+    private struct Size9Struct { public long A; public byte B; }
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    private struct Size17Struct
+    private struct Size17Struct { public long A; public long B; public byte C; }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    private struct Size16Struct { public long A; public long B; } // already power-of-2
+
+    [Fact]
+    public void AlignOf_AlwaysAtLeastPointerSize()
     {
-        public long A;
-        public long B;
-        public byte C;
+        int ptr = IntPtr.Size;
+
+        Assert.Equal(ptr, UnsafeHelpers.AlignOf<byte>());
+        Assert.Equal(ptr, UnsafeHelpers.AlignOf<short>());
+        Assert.Equal(ptr, UnsafeHelpers.AlignOf<int>());   // 4→8 on 64-bit, 4 on 32-bit
+        Assert.Equal(8, UnsafeHelpers.AlignOf<long>());    // long is special
     }
 
     [Fact]
-    public void AlignOf_ReturnsAtLeastPointerSize()
+    public void AlignOf_ReturnsNextPowerOfTwo()
     {
-        int pointerSize = IntPtr.Size;
-
-        Assert.True(UnsafeHelpers.AlignOf<byte>() >= pointerSize);
-        Assert.True(UnsafeHelpers.AlignOf<short>() >= pointerSize);
-        Assert.True(UnsafeHelpers.AlignOf<int>() >= pointerSize);
-        Assert.True(UnsafeHelpers.AlignOf<long>() >= pointerSize);
-
-        // Specific checks for types smaller than pointer size
-        if (pointerSize == 8)
-        {
-            Assert.Equal(8, UnsafeHelpers.AlignOf<byte>());
-            Assert.Equal(8, UnsafeHelpers.AlignOf<int>());
-        }
-        else if (pointerSize == 4)
-        {
-            Assert.Equal(4, UnsafeHelpers.AlignOf<byte>());
-            Assert.Equal(4, UnsafeHelpers.AlignOf<short>());
-        }
+        Assert.Equal(16, UnsafeHelpers.AlignOf<Size16Struct>()); // unchanged
+        Assert.Equal(16, UnsafeHelpers.AlignOf<Size9Struct>());  // 9→16
+        Assert.Equal(32, UnsafeHelpers.AlignOf<Size17Struct>()); // 17→32
     }
 
     [Fact]
-    public void AlignOf_ReturnsPowerOfTwo()
+    public void AlignOf_CommonRealTypes()
     {
-        // Size 9 should round up to 16
-        Assert.Equal(16, UnsafeHelpers.AlignOf<Size9Struct>());
-
-        // Size 17 should round up to 32
-        Assert.Equal(32, UnsafeHelpers.AlignOf<Size17Struct>());
+        Assert.Equal(8, UnsafeHelpers.AlignOf<double>());
+        Assert.Equal(16, UnsafeHelpers.AlignOf<Guid>());
+        // decimal is 16 on all platforms
+        Assert.Equal(16, UnsafeHelpers.AlignOf<decimal>());
     }
 }

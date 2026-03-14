@@ -10,6 +10,35 @@ Check out the samples directory for complete, end-to-end examples of building a 
 - [**SimpleMathParser**](samples/SimpleMathParser/) [![Try SimpleMathParser](https://img.shields.io/badge/Try%20it-SimpleMathParser-blue)](samples/SimpleMathParser/): A standard .NET console app using `ArenaList`, `ArenaPtrStack`, and `ArenaString` to tokenize and evaluate expressions.
 - [**WasmMathParser**](samples/WasmMathParser/) [![Try WasmMathParser](https://img.shields.io/badge/Try%20it-WasmMathParser-orange)](samples/WasmMathParser/): The exact same logic but compiled to a `wasi-wasm` target. **SharpArena works in WASM out-of-the-box (unlike Varena, which requires virtual memory OS APIs)**.
 
+## Running the WASM Sample
+
+To run the `WasmMathParser` example, you need a WebAssembly runtime that supports the WebAssembly System Interface (WASI). We recommend **Wasmtime**.
+
+### 1. Install Wasmtime
+Helper scripts to automate the installation are located in the `samples/WasmMathParser` directory.
+
+- **Windows (PowerShell):**
+  ```powershell
+  cd samples/WasmMathParser
+  .\install-wasmtime.ps1
+  ```
+- **Linux/macOS (Bash):**
+  ```bash
+  cd samples/WasmMathParser
+  ./install-wasmtime.sh
+  ```
+Follow the on-screen instructions to complete the installation and configure your shell's `PATH`.
+
+### 2. Run the Parser
+Once Wasmtime is installed, build the project and run the compiled `.wasm` file:
+```bash
+# Build the project
+dotnet build -c Release
+
+# Run with Wasmtime
+wasmtime run ./samples/WasmMathParser/bin/Release/net10.0/wasi-wasm/WasmMathParser.wasm
+```
+
 ## Usage
 ```csharp
 using SharpArena.Allocators;
@@ -87,7 +116,7 @@ Console.WriteLine(*ptr);
 ### Varena
 * **Internal workings:** Leverages virtual memory directly (e.g., `VirtualAlloc` on Windows). It reserves a massive contiguous virtual address space upfront and commits physical memory pages strictly as needed.
 * **Limitations:** Not available in WASM environments because it requires virtual memory OS APIs.
-* **When to use:** Better when you need continuous blocks of very large memory without worrying about re-allocations or segment limits, and you are on a supported platform (Windows/Linux/macOS).
+* **When to use:** Better when you need to continuous blocks of very large memory without worrying about re-allocations or segment limits, and you are on a supported platform (Windows/Linux/macOS).
 
 ## Benchmarks
 See `bench/ArenaBench.md` for performance numbers compared to NativeMemory and Varena.
