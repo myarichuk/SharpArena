@@ -202,6 +202,11 @@ public unsafe class ArenaAllocator : IDisposable
     {
         lock (_disposeLock)
         {
+            if (_disposed)
+            {
+                throw new ObjectDisposedException(nameof(ArenaAllocator));
+            }
+
             Volatile.Write(ref _resetInProgress, 1);
             try
             {

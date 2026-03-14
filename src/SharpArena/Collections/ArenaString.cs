@@ -39,10 +39,7 @@ public readonly unsafe struct ArenaString
             return;
         }
 
-        if (_arena == null || _arena.CurrentGeneration != _generation)
-        {
-            throw new ObjectDisposedException(nameof(ArenaString), "Arena was reset or disposed — all pointers invalid");
-        }
+        UnsafeHelpers.CheckAliveThrowIfNot(_arena, _generation, nameof(ArenaString));
     }
 
     /// <summary>
@@ -141,12 +138,14 @@ public readonly unsafe struct ArenaString
     {
         var hash = new HashCode();
         hash.Add(_len);
-
+#if NETCOREAPP3_0_OR_GREATER || NET
+        hash.AddBytes(MemoryMarshal.AsBytes(AsSpan()));
+#else
         foreach (var ch in AsSpan())
         {
             hash.Add(ch);
         }
-
+#endif
         return hash.ToHashCode();
     }
 
@@ -172,7 +171,7 @@ public readonly unsafe struct ArenaString
             throw new ArgumentOutOfRangeException(nameof(length), "Slice length must be non-negative.");
         }
 
-        if (start + length > _len)
+        if (length > _len - start)
         {
             throw new ArgumentOutOfRangeException(nameof(length), "Slice range must be within the string bounds.");
         }

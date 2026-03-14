@@ -46,4 +46,20 @@ public class UnsafeHelpers
         return value;
     }
 #endif
+
+    /// <summary>
+    /// Checks if the provided arena is still valid and has not been disposed or reset.
+    /// Throws an <see cref="ObjectDisposedException"/> if the arena is invalid.
+    /// </summary>
+    /// <param name="arena">The allocator to check.</param>
+    /// <param name="generation">The generation snapshot taken at initialization.</param>
+    /// <param name="typeName">The name of the type making the check (for the exception message).</param>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void CheckAliveThrowIfNot(ArenaAllocator arena, int generation, string typeName)
+    {
+        if (arena == null || arena.CurrentGeneration != generation)
+        {
+            throw new ObjectDisposedException(typeName, "Arena was reset or disposed — all pointers invalid");
+        }
+    }
 }

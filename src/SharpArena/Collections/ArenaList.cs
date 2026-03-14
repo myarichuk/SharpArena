@@ -67,17 +67,14 @@ public unsafe struct ArenaList<T>
         }
 
         _header->Data = (T*)arena.Alloc(
-            (nuint)byteCount,
+            (nuint)initialCapacity * (nuint)sizeof(T),
             align: (nuint)UnsafeHelpers.AlignOf<T>());
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void CheckAliveThrowIfNot()
     {
-        if (_arena == null || _arena.CurrentGeneration != _generation)
-        {
-            throw new ObjectDisposedException(nameof(ArenaList<T>), "Arena was reset or disposed — all pointers invalid");
-        }
+        UnsafeHelpers.CheckAliveThrowIfNot(_arena, _generation, nameof(ArenaList<T>));
     }
 
     /// <summary>
@@ -139,30 +136,18 @@ public unsafe struct ArenaList<T>
 
     private void Grow()
     {
-        int oldCap = _header->Capacity;
-        if (oldCap >= int.MaxValue)
+        if (_header->Capacity > int.MaxValue / 2)
         {
             throw new InvalidOperationException("ArenaList capacity overflow.");
         }
 
-        int newCap = oldCap > int.MaxValue / 2 ? int.MaxValue : oldCap * 2;
-        ulong byteCount = (ulong)(uint)newCap * (ulong)sizeof(T);
-        ulong oldByteCount = (ulong)(uint)_header->Count * (ulong)sizeof(T);
-
-        if (byteCount != (ulong)(nuint)byteCount)
-        {
-            // If even with int.MaxValue we exceed nuint (rare on 64-bit, possible on 32-bit if T is large)
-            throw new OverflowException("ArenaList capacity exceeds addressable memory.");
-        }
-
+        var newCap = (nuint)_header->Capacity * 2;
         var newPtr = _arena.Alloc(
-            (nuint)byteCount,
+            newCap * (nuint)sizeof(T),
             align: (nuint)UnsafeHelpers.AlignOf<T>());
-
-        Buffer.MemoryCopy(_header->Data, newPtr, byteCount, oldByteCount);
-
+        Unsafe.CopyBlockUnaligned(newPtr, _header->Data, (uint)(_header->Count * sizeof(T)));
         _header->Data = newPtr;
-        _header->Capacity = newCap;
+        _header->Capacity = (int)newCap;
     }
 
     /// <summary>
