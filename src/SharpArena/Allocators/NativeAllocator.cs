@@ -134,29 +134,32 @@ public static unsafe class NativeAllocator
             return null;
         }
 
-#if NET7_0_OR_GREATER
-        if (size > nuint.MaxValue - HeaderSize)
-#else
-        if (size > unchecked((nuint)ulong.MaxValue) - HeaderSize)
-#endif
-        {
-            throw new OutOfMemoryException("Native allocation failed due to integer overflow.");
-        }
-
-        var total = size + HeaderSize;
-        var alignedTotal = total;
+        nuint total;
+        nuint alignedTotal;
         nuint guardPrefix = 0;
         nuint guardSuffix = 0;
 
-
-        if (backend is NativeAllocatorBackend.PlatformInvoke)
+        try
         {
-            alignedTotal = AlignUp(total, PageSize);
+            checked
+            {
+                total = size + HeaderSize;
+                alignedTotal = total;
+
+                if (backend is NativeAllocatorBackend.PlatformInvoke)
+                {
+                    alignedTotal = AlignUp(total, PageSize);
 #if DEBUG
-            guardPrefix = PageSize;
-            guardSuffix = PageSize;
-            alignedTotal += guardPrefix + guardSuffix;
+                    guardPrefix = PageSize;
+                    guardSuffix = PageSize;
+                    alignedTotal += guardPrefix + guardSuffix;
 #endif
+                }
+            }
+        }
+        catch (OverflowException)
+        {
+            throw new OutOfMemoryException("Native allocation failed due to integer overflow.");
         }
 
         void* rawPtr = backend switch
@@ -334,7 +337,7 @@ public static unsafe class NativeAllocator
         }
 
         var remainder = value % alignment;
-        return remainder == 0 ? value : value + (alignment - remainder);
+        return remainder == 0 ? value : checked(value + (alignment - remainder));
     }
 
     private static nuint AlignDown(nuint value, nuint alignment)
