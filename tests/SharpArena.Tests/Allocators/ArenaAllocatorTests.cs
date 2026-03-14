@@ -239,4 +239,13 @@ public unsafe class ArenaAllocatorTests : IDisposable
         // We should have successfully allocated all memory
         Assert.True(totalAllocated >= target);
     }
+
+    [Fact]
+    public void Reset_AfterDispose_ShouldThrowObjectDisposedException()
+    {
+        var arena = new ArenaAllocator();
+        arena.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(() => arena.Reset());
+    }
 }
