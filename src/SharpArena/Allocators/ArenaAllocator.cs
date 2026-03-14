@@ -3,8 +3,6 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 namespace SharpArena.Allocators;
 
-using SharpArena.Allocators;
-
 /// <summary>
 /// A zero-allocation arena allocator for high-performance parsing.
 /// </summary>
