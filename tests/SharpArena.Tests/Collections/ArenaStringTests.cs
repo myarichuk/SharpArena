@@ -133,6 +133,18 @@ public unsafe class ArenaStringTests : IDisposable
     }
 
     [Fact]
+    public void Slice_IntegerOverflow_ThrowsArgumentOutOfRangeException()
+    {
+        var text = "Hello, World!";
+        var str = ArenaString.Clone(text, _arena);
+
+        var act = () => str.Slice(int.MaxValue - 5, 10);
+
+        act.Should().Throw<ArgumentOutOfRangeException>()
+            .WithParameterName("length");
+    }
+
+    [Fact]
     public void ImplicitOperator_ToReadOnlySpan_Works()
     {
         var text = "Hello";
