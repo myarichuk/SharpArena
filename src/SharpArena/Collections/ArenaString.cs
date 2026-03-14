@@ -136,12 +136,14 @@ public readonly unsafe struct ArenaString
     {
         var hash = new HashCode();
         hash.Add(_len);
-
+#if NETCOREAPP3_0_OR_GREATER || NET
+        hash.AddBytes(MemoryMarshal.AsBytes(AsSpan()));
+#else
         foreach (var ch in AsSpan())
         {
             hash.Add(ch);
         }
-
+#endif
         return hash.ToHashCode();
     }
 

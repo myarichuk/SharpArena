@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>HashCodeBench-20260314-144356</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.13.12, Ubuntu 24.04.4 LTS (Noble Numbat)
+Intel Xeon Processor 2.30GHz, 1 CPU, 4 logical and 4 physical cores
+.NET SDK 10.0.103
+  [Host]     : .NET 8.0.24 (8.0.2426.7010), X64 RyuJIT AVX2
+  DefaultJob : .NET 8.0.24 (8.0.2426.7010), X64 RyuJIT AVX2
+</code></pre>
+<pre><code></code></pre>
+
+<table>
+<thead><tr><th>Method    </th><th>Mean</th><th>Error</th><th>StdDev</th><th>Ratio</th><th>Allocated</th><th>Alloc Ratio</th>
+</tr>
+</thead><tbody><tr><td>LoopHashCode</td><td>364.20 ns</td><td>4.833 ns</td><td>4.520 ns</td><td>1.00</td><td>-</td><td>NA</td>
+</tr><tr><td>AddBytesHashCode</td><td>81.21 ns</td><td>1.141 ns</td><td>2.306 ns</td><td>0.22</td><td>-</td><td>NA</td>
+</tr></tbody></table>
+</body>
+</html>
