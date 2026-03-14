@@ -67,7 +67,7 @@ public class ArenaListTests : IDisposable
 
         // Access internal layout to modify capacity without allocating 1GB of actual memory
         ref ArenaListLayout layout = ref Unsafe.As<ArenaList<int>, ArenaListLayout>(ref list);
-        layout._header->Capacity = (int.MaxValue / 2) + 1;
+        layout._header->Capacity = int.MaxValue;
         layout._header->Count = layout._header->Capacity;
 
         var ex = Assert.Throws<InvalidOperationException>(() => list.Add(1));

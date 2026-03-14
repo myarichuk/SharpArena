@@ -150,18 +150,31 @@ public unsafe struct ArenaList<T>
 
     private void Grow()
     {
-        if (_header->Capacity > int.MaxValue / 2)
+        int oldCap = _header->Capacity;
+        if (oldCap >= int.MaxValue)
         {
             throw new InvalidOperationException("ArenaList capacity overflow.");
         }
 
-        var newCap = (nuint)_header->Capacity * 2;
-        var newPtr = _arena.Alloc(
-            newCap * (nuint)sizeof(T),
-            align: (nuint)UnsafeHelpers.AlignOf<T>());
-        Unsafe.CopyBlockUnaligned(newPtr, _header->Data, (uint)(_header->Count * sizeof(T)));
+        int newCap = oldCap > int.MaxValue / 2 ? int.MaxValue : oldCap * 2;
+        ulong byteCount = (ulong)(uint)newCap * (ulong)sizeof(T);
+        ulong oldByteCount = (ulong)(uint)_header->Count * (ulong)sizeof(T);
+
+        if (byteCount != (ulong)(nuint)byteCount)
+        {
+            throw new InvalidOperationException("ArenaList capacity exceeds addressable memory.");
+        }
+
+        var newPtr = _arena.Alloc((nuint)byteCount, align: (nuint)UnsafeHelpers.AlignOf<T>());
+
+        System.Buffer.MemoryCopy(
+            source: _header->Data,
+            destination: newPtr,
+            destinationSizeInBytes: byteCount,
+            sourceBytesToCopy: oldByteCount);
+
         _header->Data = newPtr;
-        _header->Capacity = (int)newCap;
+        _header->Capacity = newCap;
     }
 
     /// <summary>
