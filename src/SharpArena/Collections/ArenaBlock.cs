@@ -240,7 +240,11 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
             _current = default;
         }
 
-        public void Dispose() { }
+        /// <inheritdoc />
+        public void Dispose()
+        {
+            // Nothing to dispose
+        }
     }
     /// <summary>
     /// Copies the list contents into a contiguous span allocated from the arena.
