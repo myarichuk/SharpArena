@@ -141,7 +141,7 @@ public unsafe struct ArenaList<T>
         var newPtr = _arena.Alloc(
             newCap * (nuint)sizeof(T),
             align: (nuint)UnsafeHelpers.AlignOf<T>());
-        Unsafe.CopyBlockUnaligned(newPtr, _header->Data, (uint)(_header->Count * sizeof(T)));
+        System.Buffer.MemoryCopy(_header->Data, newPtr, newCap * (nuint)sizeof(T), (uint)(_header->Count * sizeof(T)));
         _header->Data = newPtr;
         _header->Capacity = (int)newCap;
     }
