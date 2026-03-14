@@ -121,6 +121,18 @@ public unsafe class ArenaStringTests : IDisposable
     }
 
     [Fact]
+    public void Slice_StartGreaterThanLength_ThrowsArgumentOutOfRangeException()
+    {
+        var text = "Hello, World!";
+        var str = ArenaString.Clone(text, _arena);
+
+        var act = () => str.Slice(20, 1);
+
+        act.Should().Throw<ArgumentOutOfRangeException>()
+            .WithParameterName("start");
+    }
+
+    [Fact]
     public void Slice_Overrun_ThrowsArgumentOutOfRangeException()
     {
         var text = "Hello, World!";
