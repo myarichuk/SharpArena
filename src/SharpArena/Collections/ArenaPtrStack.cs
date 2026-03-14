@@ -31,6 +31,7 @@ public unsafe struct ArenaPtrStackHeader
 /// Safe to copy by value since metadata and buffer pointer are shared through the header.
 /// </summary>
 /// <typeparam name="T">Unmanaged element type (the stack stores pointers to this type).</typeparam>
+[System.Diagnostics.DebuggerDisplay("Count = {Count}, Capacity = {Capacity}")]
 public unsafe struct ArenaPtrStack<T>
     where T : unmanaged
 {

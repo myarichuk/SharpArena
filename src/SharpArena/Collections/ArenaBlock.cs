@@ -41,6 +41,7 @@ public unsafe struct ArenaBlock<T>
 /// </summary>
 /// <typeparam name="T">The unmanaged element type.</typeparam>
 [StructLayout(LayoutKind.Sequential)]
+[System.Diagnostics.DebuggerDisplay("Count = {Count}, Capacity = {Capacity}")]
 public unsafe struct ArenaBlockList<T> : IEnumerable<T>
     where T : unmanaged
 {
