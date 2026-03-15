@@ -159,6 +159,11 @@ public unsafe struct ArenaList<T>
         ulong byteCount = (ulong)(uint)newCap * (ulong)sizeof(T);
         ulong oldByteCount = (ulong)(uint)_header->Count * (ulong)sizeof(T);
 
+        if (byteCount > uint.MaxValue || oldByteCount > uint.MaxValue)
+        {
+            throw new InvalidOperationException("ArenaList memory copy size exceeds uint.MaxValue.");
+        }
+
         if (byteCount != (ulong)(nuint)byteCount)
         {
             throw new InvalidOperationException("ArenaList capacity exceeds addressable memory.");
