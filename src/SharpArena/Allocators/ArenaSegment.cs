@@ -62,7 +62,17 @@ public unsafe struct ArenaSegment
         Debug.Assert((align & (align - 1)) == 0, "align must be a power of two");
 
         var current = (nuint)Base + Offset;
+
+        // Align up the current offset to the requested power-of-two alignment
+        // If the resulting aligned address wraps around (overflows), it will be less than the current address.
         var aligned = (current + (align - 1)) & ~(align - 1);
+
+        if (aligned < current)
+        {
+            ptr = null;
+            return false;
+        }
+
         var newOffset = aligned - (nuint)Base;
 
         // overflow-safe bound check: newOffset <= Size - size
