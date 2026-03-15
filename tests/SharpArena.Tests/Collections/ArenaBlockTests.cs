@@ -116,4 +116,18 @@ public unsafe class ArenaBlockListTests : IDisposable
         Assert.Throws<ObjectDisposedException>(() => list.GetSpan());
         Assert.Throws<ObjectDisposedException>(() => list.Reset());
     }
+
+    [Fact]
+    public void CreateBlock_WithOverflowCapacity_ThrowsOutOfMemoryException()
+    {
+#if NET7_0_OR_GREATER
+        nuint max = nuint.MaxValue;
+#else
+        nuint max = unchecked((nuint)ulong.MaxValue);
+#endif
+        // Set capacity to a value that would cause capacity * sizeof(int) to overflow.
+        nuint overflowCapacity = (max / (nuint)sizeof(int)) + 1;
+
+        Assert.Throws<OutOfMemoryException>(() => new ArenaBlockList<int>(_arena, blockSize: overflowCapacity));
+    }
 }

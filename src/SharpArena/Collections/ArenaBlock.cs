@@ -78,8 +78,23 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
 
     private static ArenaBlock<T>* CreateBlock(ArenaAllocator arena, nuint capacity)
     {
+#if NET7_0_OR_GREATER
+        nuint max = nuint.MaxValue;
+#else
+        nuint max = unchecked((nuint)ulong.MaxValue);
+#endif
+        if (capacity > max / (nuint)sizeof(T))
+        {
+            throw new OutOfMemoryException("Capacity exceeds maximum addressable memory.");
+        }
+
         nuint headerSize = (nuint)sizeof(ArenaBlock<T>);
         nuint dataSize = capacity * (nuint)sizeof(T);
+
+        if (max - headerSize < dataSize)
+        {
+            throw new OutOfMemoryException("Block size exceeds maximum addressable memory.");
+        }
 
         byte* mem = (byte*)arena.Alloc(headerSize + dataSize,  (nuint)Unsafe.SizeOf<T>());
         var block = (ArenaBlock<T>*)mem;
