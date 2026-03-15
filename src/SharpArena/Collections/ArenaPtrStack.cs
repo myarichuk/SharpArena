@@ -193,6 +193,11 @@ public unsafe struct ArenaPtrStack<T>
         ulong byteCount = (ulong)(uint)newCap * (ulong)sizeof(T*);
         ulong oldByteCount = (ulong)(uint)_header->Count * (ulong)sizeof(T*);
 
+        if (byteCount > uint.MaxValue || oldByteCount > uint.MaxValue)
+        {
+            ThrowInvalidOperation("ArenaPtrStack memory copy size exceeds uint.MaxValue.");
+        }
+
         if (byteCount != (ulong)(nuint)byteCount)
         {
             ThrowInvalidOperation("ArenaPtrStack capacity exceeds addressable memory");
