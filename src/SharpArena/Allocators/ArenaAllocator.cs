@@ -194,20 +194,40 @@ public unsafe class ArenaAllocator : IDisposable
         return req > doubled ? AlignUp(req, DefaultPageSize) : doubled;
     }
 
+    /// <summary>
+    /// Aligns a memory offset or address up to a specified alignment value.
+    /// Ensures that an integer overflow exception is thrown if the alignment wraps around.
+    /// </summary>
     private static nuint AlignUp(nuint value, nuint align)
     {
         align = RoundUpToPowerOfTwo(align);
-        return (value + (align - 1)) & ~(align - 1);
+        nuint result = (value + (align - 1)) & ~(align - 1);
+
+        // If an overflow occurs when adding `align - 1`, the result wraps
+        // and becomes strictly less than the original value.
+        if (result < value)
+        {
+            throw new OverflowException("Alignment caused an integer overflow.");
+        }
+        return result;
     }
 
+    /// <summary>
+    /// Rounds up an unsigned integer to the nearest power of two using a bitwise shift approach.
+    /// This guarantees O(1) alignment calculations for native integers.
+    /// </summary>
     private static nuint RoundUpToPowerOfTwo(nuint x)
     {
+        // 0 case
         if (x == 0)
         {
             return 1;
         }
 
+        // Subtract 1 to prevent numbers that are already powers of two from doubling.
         x--;
+
+        // Propagate the highest set bit downwards to fill all lower bits with 1s.
         x |= x >> 1;
         x |= x >> 2;
         x |= x >> 4;
@@ -216,6 +236,10 @@ public unsafe class ArenaAllocator : IDisposable
 #if TARGET_64BIT
         x |= x >> 32;
 #endif
+
+        // Overflow safety mechanism not explicitly required here,
+        // because maximum value with all bits set (1) becomes 0 when incremented,
+        // which triggers overflow checks up the stack in AlignUp.
         return x + 1;
     }
 

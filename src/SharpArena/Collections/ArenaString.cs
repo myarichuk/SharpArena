@@ -104,7 +104,7 @@ public readonly unsafe struct ArenaString
         ulong bytes = (ulong)(uint)src.Length * (ulong)sizeof(char);
         if (bytes != (ulong)(nuint)bytes)
         {
-            throw new ArgumentOutOfRangeException(nameof(src), "Source span size exceeds addressable memory.");
+            throw new OutOfMemoryException("Source span size exceeds addressable memory.");
         }
 
         var dest = (char*)arena.Alloc((nuint)bytes, align: (nuint)UnsafeHelpers.AlignOf<char>());
@@ -239,7 +239,7 @@ public readonly unsafe struct ArenaString
         ulong bytes = (ulong)(uint)newLen * (ulong)sizeof(char);
         if (bytes != (ulong)(nuint)bytes)
         {
-            throw new ArgumentOutOfRangeException(nameof(left), "Concatenated string size exceeds addressable memory.");
+            throw new OutOfMemoryException("Concatenated string size exceeds addressable memory.");
         }
 
         var arena = left._arena;

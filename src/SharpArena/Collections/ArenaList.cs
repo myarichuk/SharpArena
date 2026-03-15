@@ -65,7 +65,7 @@ public unsafe struct ArenaList<T>
         ulong byteCount = (ulong)(uint)initialCapacity * (ulong)sizeof(T);
         if (byteCount != (ulong)(nuint)byteCount)
         {
-            throw new ArgumentOutOfRangeException(nameof(initialCapacity), "Initial capacity exceeds addressable memory.");
+            throw new OutOfMemoryException("Initial capacity exceeds addressable memory.");
         }
 
         _header->Data = (T*)arena.Alloc(
@@ -159,14 +159,9 @@ public unsafe struct ArenaList<T>
         ulong byteCount = (ulong)(uint)newCap * (ulong)sizeof(T);
         ulong oldByteCount = (ulong)(uint)_header->Count * (ulong)sizeof(T);
 
-        if (byteCount > uint.MaxValue || oldByteCount > uint.MaxValue)
-        {
-            throw new InvalidOperationException("ArenaList memory copy size exceeds uint.MaxValue.");
-        }
-
         if (byteCount != (ulong)(nuint)byteCount)
         {
-            throw new InvalidOperationException("ArenaList capacity exceeds addressable memory.");
+            throw new OutOfMemoryException("ArenaList capacity exceeds addressable memory.");
         }
 
         var newPtr = _arena.Alloc(
