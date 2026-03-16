@@ -37,6 +37,27 @@ public unsafe struct ArenaBlock<T>
 }
 
 /// <summary>
+/// Metadata describing the shared state of an <see cref="ArenaBlockList{T}"/>.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public unsafe struct ArenaBlockListHeader<T>
+    where T : unmanaged
+{
+    /// <summary>
+    /// Gets or sets the total number of elements stored across all blocks.
+    /// </summary>
+    public nuint TotalCount;
+    /// <summary>
+    /// Gets or sets the total allocated capacity across all blocks.
+    /// </summary>
+    public nuint TotalCapacity;
+    /// <summary>
+    /// Gets or sets the pointer to the current block where the next addition will occur.
+    /// </summary>
+    public ArenaBlock<T>* CurrentBlock;
+}
+
+/// <summary>
 /// Provides a growable sequence of arena-backed blocks that stores unmanaged values without GC allocations.
 /// </summary>
 /// <typeparam name="T">The unmanaged element type.</typeparam>
@@ -50,11 +71,7 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
     private readonly ArenaAllocator _arena;
     private readonly int _generation; //generation snapshot
     private readonly ArenaBlock<T>* _head;
-    private ArenaBlock<T>* _current;
-    
-    // Cache total count and capacity to avoid O(N) traversal
-    private nuint _count;
-    private nuint _capacity;
+    private ArenaBlockListHeader<T>* _header;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ArenaBlockList{T}"/> struct.
@@ -64,10 +81,15 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
     public ArenaBlockList(ArenaAllocator arena, nuint blockSize = DefaultBlockSize)
     {
         _arena = arena;
-        _head = _current = CreateBlock(arena, blockSize);
         _generation = arena.CurrentGeneration;
-        _count = 0;
-        _capacity = blockSize;
+        
+        var firstBlock = CreateBlock(arena, blockSize);
+        _head = firstBlock;
+
+        _header = (ArenaBlockListHeader<T>*)arena.Alloc((nuint)sizeof(ArenaBlockListHeader<T>), align: (nuint)IntPtr.Size);
+        _header->TotalCount = 0;
+        _header->TotalCapacity = blockSize;
+        _header->CurrentBlock = firstBlock;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -113,7 +135,7 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
         get
         {
             CheckAliveThrowIfNot();
-            return _count;
+            return _header->TotalCount;
         }
     }
 
@@ -125,7 +147,7 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
         get
         {
             CheckAliveThrowIfNot();
-            return _capacity;
+            return _header->TotalCapacity;
         }
     }
 
@@ -140,8 +162,8 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
             b->Count = 0;
         }
 
-        _current = _head;
-        _count = 0;
+        _header->CurrentBlock = _head;
+        _header->TotalCount = 0;
     }
 
     /// <summary>
@@ -151,17 +173,19 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
     public void Add(in T value)
     {
         CheckAliveThrowIfNot();
-        if (_current->Count >= _current->Capacity)
+        var current = _header->CurrentBlock;
+        if (current->Count >= current->Capacity)
         {
-            var nextCapacity = _current->Capacity * 2;
+            var nextCapacity = current->Capacity * 2;
             var newBlock = CreateBlock(_arena, nextCapacity);
-            _current->Next = newBlock;
-            _current = newBlock;
-            _capacity += nextCapacity;
+            current->Next = newBlock;
+            _header->CurrentBlock = newBlock;
+            _header->TotalCapacity += nextCapacity;
+            current = newBlock;
         }
 
-        _current->Data[_current->Count++] = value;
-        _count++;
+        current->Data[current->Count++] = value;
+        _header->TotalCount++;
     }
 
     /// <summary>
