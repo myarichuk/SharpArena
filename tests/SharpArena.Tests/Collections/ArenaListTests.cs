@@ -142,6 +142,33 @@ public class ArenaListTests : IDisposable
         Assert.Throws<ObjectDisposedException>(() => list.AsSpan());
         Assert.Throws<ObjectDisposedException>(() => list.AsReadOnlySpan());
     }
+    
+    [Fact]
+    public void ArenaList_StructCopy_SharesHeader_MutationsAreVisibleToBoth()
+    {
+        using var arena = new ArenaAllocator();
+
+        var list1 = new ArenaList<int>(arena, initialCapacity: 4);
+        list1.Add(10);
+        list1.Add(20);
+
+        // This is a value copy — _header pointer is duplicated
+        var list2 = list1;
+
+        list2.Add(30);
+        list2[0] = 42;                     // mutate through copy
+
+        // both should see everything
+        Assert.Equal(3, list1.Length);
+        Assert.Equal(3, list2.Length);
+        Assert.Equal(42, list1[0]);
+        Assert.Equal(30, list1[2]);
+
+        // generation check still works for both
+        arena.Reset();
+        Assert.Throws<ObjectDisposedException>(() => list1.Add(99));
+        Assert.Throws<ObjectDisposedException>(() => list2.Add(99));
+    }    
 
     public void Dispose()
     {

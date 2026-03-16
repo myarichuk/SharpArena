@@ -32,7 +32,7 @@ public unsafe struct ArenaPtrStackHeader
 /// </summary>
 /// <typeparam name="T">Unmanaged element type (the stack stores pointers to this type).</typeparam>
 [System.Diagnostics.DebuggerDisplay("Count = {Count}, Capacity = {Capacity}")]
-public unsafe struct ArenaPtrStack<T>
+public readonly unsafe struct ArenaPtrStack<T>
     where T : unmanaged
 {
     private readonly ArenaAllocator _arena;
