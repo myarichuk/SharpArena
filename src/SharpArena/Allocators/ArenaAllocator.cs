@@ -21,9 +21,6 @@ public unsafe class ArenaAllocator : IDisposable
     private bool _disposed;
     private int _generation = 0;
     
-    private readonly object _disposeLock = new();
-    private int _activeAllocations;
-    private int _resetInProgress;
     private nuint _peakBytes;
 
     /// <summary>
@@ -81,85 +78,60 @@ public unsafe class ArenaAllocator : IDisposable
     /// <returns>A pointer to the allocated memory.</returns>
     public void* Alloc(nuint size, nuint align = 8)
     {
-        SpinWait spinner = default;
+        if (_disposed)
+        {
+            throw new ObjectDisposedException(nameof(ArenaAllocator));
+        }
+
+        if (size == 0)
+        {
+            return null;
+        }
+
+        var seg = _current;
+        if (seg is null)
+        {
+            throw new ObjectDisposedException(nameof(ArenaAllocator));
+        }
+
+        align = AlignUp(align, (nuint)IntPtr.Size);
+        if (seg->TryAlloc(size, align, out var ptr))
+        {
+            return ptr;
+        }
+
         while (true)
         {
-            if (Volatile.Read(ref _disposed))
+            if (_disposed)
             {
                 throw new ObjectDisposedException(nameof(ArenaAllocator));
             }
 
-            Interlocked.Increment(ref _activeAllocations);
-            if (Volatile.Read(ref _disposed))
+            var nextSize = NextSegmentSize(seg->Size, size);
+
+            if (nextSize < size)
             {
-                Interlocked.Decrement(ref _activeAllocations);
-                throw new ObjectDisposedException(nameof(ArenaAllocator));
+                nextSize = AlignUp(size, DefaultPageSize);
             }
 
-            if (Volatile.Read(ref _resetInProgress) != 0)
+            if (nextSize > _maxSegmentSize)
             {
-                Interlocked.Decrement(ref _activeAllocations);
-                spinner.SpinOnce();
-                continue;
+                nextSize = AlignUp(size, DefaultPageSize); // fallback if request > maxSegmentSize
             }
 
-            try
+            var newSeg = AllocateSegment(nextSize);
+            seg->Next = newSeg;
+            _current = newSeg;
+            seg = newSeg;
+
+            if (seg->TryAlloc(size, align, out ptr))
             {
-                if (size == 0)
-                {
-                    return null;
-                }
-
-                var seg = _current;
-                if (seg is null)
-                {
-                    throw new ObjectDisposedException(nameof(ArenaAllocator));
-                }
-
-                align = AlignUp(align, (nuint)IntPtr.Size);
-                if (seg->TryAlloc(size, align, out var ptr))
-                {
-                    return ptr;
-                }
-
-                while (true)
-                {
-                    if (Volatile.Read(ref _disposed))
-                    {
-                        throw new ObjectDisposedException(nameof(ArenaAllocator));
-                    }
-
-                    var nextSize = NextSegmentSize(seg->Size, size);
-
-                    if (nextSize < size)
-                    {
-                        nextSize = AlignUp(size, DefaultPageSize);
-                    }
-
-                    if (nextSize > _maxSegmentSize)
-                    {
-                        nextSize = AlignUp(size, DefaultPageSize); // fallback if request > maxSegmentSize
-                    }
-
-                    var newSeg = AllocateSegment(nextSize);
-                    seg->Next = newSeg;
-                    _current = newSeg;
-                    seg = newSeg;
-
-                    if (seg->TryAlloc(size, align, out ptr))
-                    {
-                        return ptr;
-                    }
-
-                    if (nextSize == size)
-                    {
-                        throw new OutOfMemoryException("Failed to allocate memory in arena; request too large.");
-                    }
-                }
+                return ptr;
             }
-            finally
+
+            if (nextSize == size)
             {
-                Interlocked.Decrement(ref _activeAllocations);
+                throw new OutOfMemoryException("Failed to allocate memory in arena; request too large.");
             }
         }
     }
@@ -251,41 +223,24 @@ public unsafe class ArenaAllocator : IDisposable
     /// </remarks>
     public void Reset()
     {
-        lock (_disposeLock)
+        if (_disposed)
         {
-            if (_disposed)
-            {
-                throw new ObjectDisposedException(nameof(ArenaAllocator));
-            }
-
-            Volatile.Write(ref _resetInProgress, 1);
-            try
-            {
-                SpinWait spinner = default;
-                while (Volatile.Read(ref _activeAllocations) != 0)
-                {
-                    spinner.SpinOnce();
-                }
-
-                var currentAllocated = AllocatedBytes;
-                if (currentAllocated > _peakBytes)
-                {
-                    _peakBytes = currentAllocated;
-                }
-
-                for (var seg = _first; seg != null; seg = seg->Next)
-                {
-                    seg->Offset = 0;
-                }
-
-                _current = _first;
-                Interlocked.Increment(ref _generation);
-            }
-            finally
-            {
-                Volatile.Write(ref _resetInProgress, 0);
-            }
+            throw new ObjectDisposedException(nameof(ArenaAllocator));
         }
+
+        var currentAllocated = AllocatedBytes;
+        if (currentAllocated > _peakBytes)
+        {
+            _peakBytes = currentAllocated;
+        }
+
+        for (var seg = _first; seg != null; seg = seg->Next)
+        {
+            seg->Offset = 0;
+        }
+
+        _current = _first;
+        _generation++;
     }
 
     /// <summary>
@@ -293,43 +248,31 @@ public unsafe class ArenaAllocator : IDisposable
     /// </summary>
     public void Dispose()
     {
-        lock (_disposeLock)
-        {
-            Dispose(true);
-        }
+        Dispose(true);
     }
 
     private void Dispose(bool isDisposing)
     {
-        lock (_disposeLock)
+        if (_disposed)
         {
-            if (_disposed)
-            {
-                return;
-            }
+            return;
+        }
 
-            _disposed = true;
+        _disposed = true;
 
-            SpinWait spinner = default;
-            while (Volatile.Read(ref _activeAllocations) != 0)
-            {
-                spinner.SpinOnce();
-            }
+        var head = _first;
+        _first = _current = null;
 
-            var head = _first;
-            _first = _current = null;
+        while (head != null)
+        {
+            var next = head->Next;
+            NativeAllocator.Free(head, _backend);
+            head = next;
+        }
 
-            while (head != null)
-            {
-                var next = head->Next;
-                NativeAllocator.Free(head, _backend);
-                head = next;
-            }
-
-            if (isDisposing)
-            {
-                GC.SuppressFinalize(this);
-            }
+        if (isDisposing)
+        {
+            GC.SuppressFinalize(this);
         }
     }
 
@@ -338,9 +281,6 @@ public unsafe class ArenaAllocator : IDisposable
     /// </summary>
     ~ArenaAllocator()
     {
-        lock (_disposeLock)
-        {
-            Dispose(false);
-        }
+        Dispose(false);
     }
 }

@@ -110,5 +110,16 @@ Console.WriteLine(*ptr);
 * **Limitations:** Not available in WASM environments because it requires virtual memory OS APIs.
 * **When to use:** Better when you need to continuous blocks of very large memory without worrying about re-allocations or segment limits, and you are on a supported platform (Windows/Linux/macOS).
 
+## Thread Safety
+
+> [!IMPORTANT]
+> **SharpArena is strictly NOT thread-safe.**
+
+To achieve maximum performance and zero overhead on the hot path, `ArenaAllocator` and its associated collections do not use any synchronization primitives (locks, interlocked operations, or volatile reads).
+
+- **One Arena Per Thread:** You should create a separate `ArenaAllocator` instance for each thread or use a `[ThreadStatic]` field.
+- **No Concurrent Access:** Do not call `Alloc`, `Reset`, or `Dispose` concurrently from multiple threads on the same instance.
+- **Single-Threaded Collections:** Collections like `ArenaList<T>` and `ArenaString` are intended to be used within the same thread that owns the arena.
+
 ## Benchmarks
 See `bench/ArenaBench.md` for performance numbers compared to NativeMemory and Varena.

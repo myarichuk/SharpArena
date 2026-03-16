@@ -152,64 +152,6 @@ public unsafe class ArenaAllocatorTests : IDisposable
         Assert.NotEqual((nint)ptr, (nint)smallPtr);
     }
 
-    [Fact]
-    public void ConcurrentAlloc_And_Reset_ShouldNotCrash()
-    {
-        // Test beyond the basic _activeAllocations counter
-        using var arena = new ArenaAllocator(4096);
-
-        var options = new ParallelOptions { MaxDegreeOfParallelism = 4 };
-        int completedAllocations = 0;
-
-        Parallel.Invoke(options,
-            () =>
-            {
-                for (int i = 0; i < 10000; i++)
-                {
-                    try
-                    {
-                        var ptr = arena.Alloc(16);
-                        if (ptr != null)
-                        {
-                            Interlocked.Increment(ref completedAllocations);
-                        }
-                    }
-                    catch (ObjectDisposedException)
-                    {
-                        // Dispose might have been called, but we are only testing Reset here
-                    }
-                }
-            },
-            () =>
-            {
-                for (int i = 0; i < 10000; i++)
-                {
-                    try
-                    {
-                        var ptr = arena.Alloc(32);
-                        if (ptr != null)
-                        {
-                            Interlocked.Increment(ref completedAllocations);
-                        }
-                    }
-                    catch (ObjectDisposedException)
-                    {
-                    }
-                }
-            },
-            () =>
-            {
-                for (int i = 0; i < 100; i++)
-                {
-                    Thread.Sleep(1);
-                    arena.Reset();
-                }
-            }
-        );
-
-        Assert.True(completedAllocations > 0);
-    }
-
     [Theory]
     [InlineData(8u)]
     [InlineData(16u)]

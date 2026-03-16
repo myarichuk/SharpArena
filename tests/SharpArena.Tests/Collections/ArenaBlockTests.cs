@@ -130,4 +130,31 @@ public unsafe class ArenaBlockListTests : IDisposable
 
         Assert.Throws<OutOfMemoryException>(() => new ArenaBlockList<int>(_arena, blockSize: overflowCapacity));
     }
+    [Fact]
+    public void StructCopy_SharesState()
+    {
+        var list1 = new ArenaBlockList<int>(_arena, blockSize: 2);
+        list1.Add(1);
+        
+        // Copy by value
+        var list2 = list1;
+        
+        list2.Add(2);
+        
+        // Both should see the same count and elements
+        Assert.Equal((nuint)2, list1.Count);
+        Assert.Equal((nuint)2, list2.Count);
+        
+        // Add more to trigger growth in list2
+        list2.Add(3); // Should create a new block
+        
+        Assert.Equal((nuint)3, list1.Count);
+        Assert.Equal((nuint)3, list2.Count);
+        
+        var elements1 = list1.ToArray();
+        var elements2 = list2.ToArray();
+        
+        Assert.Equal(new[] { 1, 2, 3 }, elements1);
+        Assert.Equal(new[] { 1, 2, 3 }, elements2);
+    }
 }
