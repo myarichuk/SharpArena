@@ -79,6 +79,8 @@ foreach (var item in list.AsSpan()) {
 ```
 **When to use:** Use `ArenaList<T>` when you need a fast, resizable list of items (like AST nodes or tokens) during a single operation, avoiding GC overhead for arrays.
 
+**Note on growth:** When dynamic collections like `ArenaList` double in size, they allocate a new buffer and leave the old buffer alive until `Reset()` is called. This is fine for short-lived arenas, but if you do a lot of growing in one operation, you're temporarily burning memory that could have been reused. This is a classic bump-allocator edge case.
+
 ### ArenaPtrStack
 A fast, unmanaged stack specifically for pointers.
 
