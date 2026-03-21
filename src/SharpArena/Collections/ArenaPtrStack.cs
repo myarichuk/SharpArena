@@ -131,8 +131,15 @@ public readonly unsafe struct ArenaPtrStack<T>
             Grow();
         }
 
+        int index = _header->Count;
+        if ((uint)index >= (uint)_header->Capacity)
+        {
+            ThrowInvalidOperation("ArenaPtrStack capacity overflow due to concurrent operations or logic bugs.");
+        }
+
+        _header->Count = index + 1;
         var data = (T**)_header->Data;
-        data[_header->Count++] = value;
+        data[index] = value;
     }
 
     /// <summary>
