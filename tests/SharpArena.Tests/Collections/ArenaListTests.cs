@@ -52,6 +52,22 @@ public class ArenaListTests : IDisposable
         }
     }
 
+    [Fact]
+    public void AsReadOnlySpan_ReturnsCorrectSpan()
+    {
+        var list = new ArenaList<int>(_arena);
+        list.Add(10);
+        list.Add(20);
+        list.Add(30);
+
+        var span = list.AsReadOnlySpan();
+
+        Assert.Equal(3, span.Length);
+        Assert.Equal(10, span[0]);
+        Assert.Equal(20, span[1]);
+        Assert.Equal(30, span[2]);
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     private struct ArenaListLayout
     {
