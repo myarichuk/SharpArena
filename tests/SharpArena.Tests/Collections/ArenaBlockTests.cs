@@ -157,4 +157,56 @@ public unsafe class ArenaBlockListTests : IDisposable
         Assert.Equal(new[] { 1, 2, 3 }, elements1);
         Assert.Equal(new[] { 1, 2, 3 }, elements2);
     }
+
+    [Fact]
+    public void GetSpan_EmptyList_ReturnsEmptySpan()
+    {
+        var list = new ArenaBlockList<int>(_arena);
+        var span = list.GetSpan();
+        Assert.True(span.IsEmpty);
+        Assert.Equal(0, span.Length);
+    }
+
+    [Fact]
+    public void GetSpan_SingleBlock_ReturnsCorrectSpan()
+    {
+        var list = new ArenaBlockList<int>(_arena, blockSize: 10);
+        for (int i = 0; i < 5; i++)
+        {
+            list.Add(i);
+        }
+
+        var span = list.GetSpan();
+        Assert.Equal(5, span.Length);
+        for (int i = 0; i < 5; i++)
+        {
+            Assert.Equal(i, span[i]);
+        }
+    }
+
+    [Fact]
+    public void GetSpan_MultipleBlocks_ReturnsContiguousSpan()
+    {
+        // Use a small block size to force multiple blocks
+        var list = new ArenaBlockList<int>(_arena, blockSize: 2);
+
+        // This will create blocks of size 2, 4, 8, 16...
+        // 2 + 4 + 8 = 14. Adding 15 elements should use at least 3-4 blocks.
+        for (int i = 0; i < 15; i++)
+        {
+            list.Add(i);
+        }
+
+        var span = list.GetSpan();
+        Assert.Equal(15, span.Length);
+
+        for (int i = 0; i < 15; i++)
+        {
+            Assert.Equal(i, span[i]);
+        }
+
+        // Verify it is indeed contiguous and correctly copied from multiple blocks
+        var expected = Enumerable.Range(0, 15).ToArray();
+        Assert.True(span.SequenceEqual(expected));
+    }
 }
