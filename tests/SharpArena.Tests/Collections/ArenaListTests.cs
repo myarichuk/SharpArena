@@ -123,6 +123,26 @@ public class ArenaListTests : IDisposable
     }
 
     [Fact]
+    public void AsSpan_ReturnsWritableSpanReflectingList()
+    {
+        var list = new ArenaList<int>(_arena);
+        list.Add(10);
+        list.Add(20);
+        list.Add(30);
+
+        var span = list.AsSpan();
+
+        Assert.Equal(3, span.Length);
+        Assert.Equal(10, span[0]);
+        Assert.Equal(20, span[1]);
+        Assert.Equal(30, span[2]);
+
+        span[1] = 99;
+
+        Assert.Equal(99, list[1]);
+    }
+
+    [Fact]
     public void AccessAfterReset_ThrowsObjectDisposedException()
     {
         var list = new ArenaList<int>(_arena);
