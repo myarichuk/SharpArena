@@ -145,7 +145,14 @@ public unsafe struct ArenaList<T>
             Grow();
         }
 
-        ((T*)_header->Data)[_header->Count++] = value;
+        int index = _header->Count;
+        if ((uint)index >= (uint)_header->Capacity)
+        {
+            throw new InvalidOperationException("ArenaList capacity overflow due to concurrent operations or logic bugs.");
+        }
+
+        _header->Count = index + 1;
+        ((T*)_header->Data)[index] = value;
     }
 
     private void Grow()
