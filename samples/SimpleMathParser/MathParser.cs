@@ -9,15 +9,22 @@ namespace SimpleMathParser;
 /// </summary>
 public class ArenaMathParser
 {
+    private const int MaxExpressionLength = 100_000;
+
     /// <summary>
     /// Tokenizes the given math expression into a list of tokens allocated in the provided arena.
     /// </summary>
     /// <param name="input">The math expression as a span of characters.</param>
     /// <param name="arena">The arena allocator to use for memory allocations.</param>
     /// <returns>A list of <see cref="Token"/> structures.</returns>
-    /// <exception cref="SyntaxErrorException">Thrown when an unknown character is encountered.</exception>
+    /// <exception cref="SyntaxErrorException">Thrown when an unknown character is encountered or if the expression exceeds the maximum length.</exception>
     public static ArenaList<Token> Tokenize(ReadOnlySpan<char> input, ArenaAllocator arena)
     {
+        if (input.Length > MaxExpressionLength)
+        {
+            throw new SyntaxErrorException("Expression too long.");
+        }
+
         var tokens = new ArenaList<Token>(arena);
 
         int i = 0;
