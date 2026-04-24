@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using SharpArena.Allocators;
 using System.Diagnostics;
@@ -235,5 +236,50 @@ public unsafe struct ArenaList<T>
     {
         CheckAliveThrowIfNot();
         return new ReadOnlySpan<T>((T*)_header->Data, _header->Count);
+    }
+
+    /// <summary>
+    /// Determines whether the list contains a specific value.
+    /// </summary>
+    /// <param name="item">The object to locate in the list.</param>
+    /// <returns><see langword="true"/> if <paramref name="item"/> is found; otherwise, <see langword="false"/>.</returns>
+    public bool Contains(in T item)
+    {
+        CheckAliveThrowIfNot();
+        var span = AsSpan();
+        for (int i = 0; i < span.Length; i++)
+        {
+            if (EqualityComparer<T>.Default.Equals(span[i], item))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Removes the element at the specified index.
+    /// </summary>
+    /// <param name="index">The zero-based index of the element to remove.</param>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when index is out of range.</exception>
+    public void RemoveAt(int index)
+    {
+        CheckAliveThrowIfNot();
+        if ((uint)index >= (uint)_header->Count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(index));
+        }
+
+        int remaining = _header->Count - index - 1;
+        if (remaining > 0)
+        {
+            var data = (T*)_header->Data;
+            Buffer.MemoryCopy(
+                source: data + index + 1,
+                destination: data + index,
+                destinationSizeInBytes: (ulong)(uint)remaining * (ulong)sizeof(T),
+                sourceBytesToCopy: (ulong)(uint)remaining * (ulong)sizeof(T));
+        }
+        _header->Count--;
     }
 }
