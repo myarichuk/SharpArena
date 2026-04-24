@@ -240,10 +240,7 @@ public unsafe struct Token
     public Token(TokenType type, ArenaString str)
     {
         Type = type;
-        fixed (char* ptr = str.AsSpan())
-        {
-            ValuePtr = ptr;
-        }
+        ValuePtr = str.RawPtr;
         ValueLen = str.Length;
     }
 
