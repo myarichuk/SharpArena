@@ -24,6 +24,13 @@ public readonly unsafe struct ArenaString : IEquatable<ArenaString>
     /// <returns>A span referencing the same characters.</returns>
     public static implicit operator ReadOnlySpan<char>(ArenaString value) => value.AsSpan();
 
+    private ArenaString(char* ptr, int len, int generation)
+    {
+        _ptr = ptr;
+        _len = len;
+        _generation = generation;
+    }
+
     internal ArenaString(ArenaAllocator arena, char* ptr, int len)
     {
         _generation = arena?.CurrentGeneration ?? 0;
@@ -104,14 +111,16 @@ public readonly unsafe struct ArenaString : IEquatable<ArenaString>
             return default;
         }
 
-        ulong bytes = (ulong)(uint)src.Length * (ulong)sizeof(char);
-        if (bytes != (ulong)(nuint)bytes)
+        uint charCount = (uint)src.Length;
+        nuint byteCount = (nuint)charCount * (nuint)sizeof(char);
+        
+        var dest = (char*)arena.Alloc(byteCount, align: (nuint)UnsafeHelpers.AlignOf<char>());
+        
+        fixed (char* srcPtr = src)
         {
-            throw new OutOfMemoryException("Source span size exceeds addressable memory.");
+            Unsafe.CopyBlockUnaligned(dest, srcPtr, (uint)byteCount);
         }
 
-        var dest = (char*)arena.Alloc((nuint)bytes, align: (nuint)UnsafeHelpers.AlignOf<char>());
-        src.CopyTo(new Span<char>(dest, src.Length));
         return new ArenaString(arena, dest, src.Length);
     }
 
@@ -187,7 +196,7 @@ public readonly unsafe struct ArenaString : IEquatable<ArenaString>
             throw new ArgumentOutOfRangeException(nameof(length), "Slice range must be within the string bounds.");
         }
 
-        return new ArenaString(null!, _ptr + start, length);
+        return new ArenaString(_ptr + start, length, _generation);
     }
 
     /// <summary>
@@ -238,19 +247,12 @@ public readonly unsafe struct ArenaString : IEquatable<ArenaString>
         }
 
         int newLen = left._len + right._len;
-        ulong bytes = (ulong)(uint)newLen * (ulong)sizeof(char);
-        if (bytes != (ulong)(nuint)bytes)
-        {
-            throw new OutOfMemoryException("Concatenated string size exceeds addressable memory.");
-        }
+        nuint byteCount = (nuint)newLen * (nuint)sizeof(char);
 
-        var dest = (char*)arena.Alloc((nuint)bytes, align: (nuint)UnsafeHelpers.AlignOf<char>());
+        var dest = (char*)arena.Alloc(byteCount, align: (nuint)UnsafeHelpers.AlignOf<char>());
 
-        var leftSpan = left.AsSpan();
-        var rightSpan = right.AsSpan();
-
-        leftSpan.CopyTo(new Span<char>(dest, leftSpan.Length));
-        rightSpan.CopyTo(new Span<char>(dest + leftSpan.Length, rightSpan.Length));
+        Unsafe.CopyBlockUnaligned(dest, left._ptr, (uint)(left._len * sizeof(char)));
+        Unsafe.CopyBlockUnaligned(dest + left._len, right._ptr, (uint)(right._len * sizeof(char)));
 
         return new ArenaString(arena, dest, newLen);
     }
