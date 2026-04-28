@@ -176,4 +176,15 @@ public unsafe class ArenaStringTests : IDisposable
 
         str.IsAlive(_arena).Should().BeFalse();
     }
+
+    [Fact]
+    public void Equals_IEquatable_ReturnsTrueIfEqual()
+    {
+        var text = "Test String";
+        var str1 = ArenaString.Clone(text, _arena);
+        var str2 = ArenaString.Clone(text, _arena);
+
+        IEquatable<ArenaString> equatable = str1;
+        equatable.Equals(str2).Should().BeTrue();
+    }
 }

@@ -11,7 +11,7 @@ namespace SharpArena.Collections;
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 [System.Diagnostics.DebuggerDisplay("{ToString()}")]
-public readonly unsafe struct ArenaString
+public readonly unsafe struct ArenaString : IEquatable<ArenaString>
 {
     private readonly char* _ptr;
     private readonly int _len;
@@ -121,8 +121,13 @@ public readonly unsafe struct ArenaString
     /// <param name="other">The span to compare.</param>
     /// <returns><see langword="true"/> when the spans are equal; otherwise, <see langword="false"/>.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool Equals(ReadOnlySpan<char> other) =>
-        _len == other.Length && AsSpan().SequenceEqual(other);
+    public bool Equals(ReadOnlySpan<char> other)
+    {
+        if (_len != other.Length) return false;
+        if (_ptr == null) return other.IsEmpty;
+
+        return MemoryMarshal.AsBytes(AsSpan()).SequenceEqual(MemoryMarshal.AsBytes(other));
+    }
 
     /// <summary>
     /// Determines whether the current string equals another arena-backed string.
@@ -130,8 +135,11 @@ public readonly unsafe struct ArenaString
     /// <param name="other">The other string to compare.</param>
     /// <returns><see langword="true"/> when the strings are equal; otherwise, <see langword="false"/>.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool Equals(ArenaString other) =>
-        Equals(other.AsSpan());
+    public bool Equals(ArenaString other)
+    {
+        if (_ptr == other._ptr && _len == other._len) return true;
+        return Equals(other.AsSpan());
+    }
 
     /// <inheritdoc />
     public override bool Equals(object? obj) =>
