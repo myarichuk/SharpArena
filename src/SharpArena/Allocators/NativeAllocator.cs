@@ -59,7 +59,7 @@ public static unsafe class NativeAllocator
     private static readonly nuint PageSize = (nuint)Environment.SystemPageSize;
 
 #if NET7_0_OR_GREATER
-    private const nuint MaxValue = nuint.MaxValue;
+    private static readonly nuint MaxValue = nuint.MaxValue;
 #else
     private static readonly nuint MaxValue = unchecked((nuint)ulong.MaxValue);
 #endif

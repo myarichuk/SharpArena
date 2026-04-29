@@ -153,17 +153,30 @@ public readonly unsafe struct ArenaString : IEquatable<ArenaString>
     /// <inheritdoc />
     public override int GetHashCode()
     {
-        var hash = new HashCode();
-        hash.Add(_len);
-#if NETCOREAPP3_0_OR_GREATER || NET
-        hash.AddBytes(MemoryMarshal.AsBytes(AsSpan()));
-#else
-        foreach (var ch in AsSpan())
+        if (_ptr == null || _len == 0) return 0;
+        return (int)System.IO.Hashing.XxHash3.HashToUInt64(MemoryMarshal.AsBytes(AsSpan()));
+    }
+
+    /// <summary>
+    /// Encodes the string as UTF-8 into the provided arena.
+    /// </summary>
+    /// <param name="arena">The allocator for the UTF-8 buffer.</param>
+    /// <returns>An <see cref="ArenaUtf8String"/> referencing the UTF-8 encoded characters.</returns>
+    public ArenaUtf8String ToUtf8(ArenaAllocator arena)
+    {
+        if (IsEmpty) return default;
+
+        var span = AsSpan();
+        var maxByteCount = (uint)System.Text.Encoding.UTF8.GetMaxByteCount(span.Length);
+        var dest = (byte*)arena.Alloc(maxByteCount, align: 1);
+
+        int bytesWritten;
+        fixed (char* srcPtr = span)
         {
-            hash.Add(ch);
+            bytesWritten = System.Text.Encoding.UTF8.GetBytes(srcPtr, span.Length, dest, (int)maxByteCount);
         }
-#endif
-        return hash.ToHashCode();
+
+        return new ArenaUtf8String(arena, dest, bytesWritten);
     }
 
     /// <summary>

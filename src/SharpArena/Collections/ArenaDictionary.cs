@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using SharpArena.Allocators;
@@ -13,9 +14,9 @@ internal unsafe struct ArenaDictionaryHeader
 {
     public int Count;
     public int Capacity; // Must be power of 2
-    public void* Keys;
-    public void* Values;
-    public ulong* Bitset;
+    public int* Buckets; // 1-based indices (0 = empty)
+    public void* Keys;   // Contiguous TKey*
+    public void* Values; // Contiguous TValue*
 }
 
 /// <summary>
@@ -31,15 +32,13 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
 {
     private readonly ArenaAllocator _arena;
     private readonly int _generation;
-    private ArenaDictionaryHeader* _header;
+    internal ArenaDictionaryHeader* _header;
 
     private const float LoadFactor = 0.7f;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ArenaDictionary{TKey, TValue}"/> struct.
     /// </summary>
-    /// <param name="arena">The allocator to use.</param>
-    /// <param name="initialCapacity">The initial capacity (will be rounded up to the next power of 2).</param>
     public ArenaDictionary(ArenaAllocator arena, int initialCapacity = 16)
     {
         _arena = arena ?? throw new ArgumentNullException(nameof(arena));
@@ -48,7 +47,7 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
         int capacity = 1;
         while (capacity < initialCapacity) capacity <<= 1;
 
-        _header = (ArenaDictionaryHeader*)arena.Alloc((nuint)sizeof(ArenaDictionaryHeader), align: (nuint)IntPtr.Size);
+        _header = (ArenaDictionaryHeader*)arena.Alloc((nuint)sizeof(ArenaDictionaryHeader), align: 8);
         _header->Count = 0;
         _header->Capacity = capacity;
 
@@ -57,62 +56,41 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
 
     private void AllocateTable(int capacity)
     {
-        int bitsetWords = (capacity + 63) / 64;
+        nuint bucketsSize = (nuint)capacity * sizeof(int);
         nuint keysSize = (nuint)capacity * (nuint)sizeof(TKey);
         nuint valuesSize = (nuint)capacity * (nuint)sizeof(TValue);
-        nuint bitsetSize = (nuint)bitsetWords * sizeof(ulong);
 
-        // Align bitset and values properly
-        nuint keyAlign = (nuint)UnsafeHelpers.AlignOf<TKey>();
-        nuint valAlign = (nuint)UnsafeHelpers.AlignOf<TValue>();
-        
-        // We allocate all blocks in one go to keep them close in memory
-        void* keysBlock = _arena.Alloc(keysSize, align: keyAlign);
-        void* valuesBlock = _arena.Alloc(valuesSize, align: valAlign);
-        void* bitsetBlock = _arena.Alloc(bitsetSize, align: 8);
+        _header->Buckets = (int*)_arena.Alloc(bucketsSize, align: 16);
+        _header->Keys = _arena.Alloc(keysSize, align: (nuint)UnsafeHelpers.AlignOf<TKey>());
+        _header->Values = _arena.Alloc(valuesSize, align: (nuint)UnsafeHelpers.AlignOf<TValue>());
 
-        _header->Keys = keysBlock;
-        _header->Values = valuesBlock;
-        _header->Bitset = (ulong*)bitsetBlock;
-
-        new Span<ulong>(_header->Bitset, bitsetWords).Clear();
+        new Span<int>(_header->Buckets, capacity).Clear();
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private readonly void CheckAlive() => 
         UnsafeHelpers.CheckAliveThrowIfNot(_arena, _generation, nameof(ArenaDictionary<,>));
 
-    private int GetSlot(TKey key, int capacity, ulong* bitset, TKey* keys)
+    private int FindBucket(TKey key)
     {
-        uint hash = (uint)key.GetHashCode();
-        uint mask = (uint)capacity - 1;
+        uint capacity = (uint)_header->Capacity;
+        int* buckets = _header->Buckets;
+        TKey* keys = (TKey*)_header->Keys;
+        uint mask = capacity - 1;
+        uint hash = Hashing.Hash(key);
         uint index = hash & mask;
 
         while (true)
         {
-            if (!IsSlotOccupied(bitset, (int)index))
-            {
-                return (int)index;
-            }
+            int entryIdxPlusOne = buckets[index];
+            if (entryIdxPlusOne == 0) return (int)index;
 
-            if (keys[index].Equals(key))
-            {
-                return (int)index;
-            }
+            if (keys[entryIdxPlusOne - 1].Equals(key)) return (int)index;
 
             index = (index + 1) & mask;
         }
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool IsSlotOccupied(ulong* bitset, int index) => 
-        (bitset[index >> 6] & (1UL << (index & 63))) != 0;
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void SetSlotOccupied(ulong* bitset, int index) => 
-        bitset[index >> 6] |= 1UL << (index & 63);
-
-    /// <inheritdoc cref="IDictionary" />
     public int Count
     {
         get
@@ -122,10 +100,8 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
         }
     }
 
-    /// <inheritdoc />
     public bool IsReadOnly => false;
 
-    /// <inheritdoc cref="IDictionary{TKey, TValue}" />
     public TValue this[TKey key]
     {
         get => TryGetValue(key, out var value) ? 
@@ -133,16 +109,12 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
         set => AddOrUpdate(key, value);
     }
 
-    /// <inheritdoc />
     public ICollection<TKey> Keys => new KeyCollection(this);
-
-    /// <inheritdoc />
     public ICollection<TValue> Values => new ValueCollection(this);
 
     IEnumerable<TKey> IReadOnlyDictionary<TKey, TValue>.Keys => Keys;
     IEnumerable<TValue> IReadOnlyDictionary<TKey, TValue>.Values => Values;
 
-    /// <inheritdoc />
     public void Add(TKey key, TValue value)
     {
         if (!TryAdd(key, value))
@@ -151,9 +123,6 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
         }
     }
 
-    /// <summary>
-    /// Attempts to add the specified key and value to the dictionary.
-    /// </summary>
     public bool TryAdd(TKey key, TValue value)
     {
         CheckAlive();
@@ -162,16 +131,14 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
             Grow();
         }
 
-        int slot = GetSlot(key, _header->Capacity, _header->Bitset, (TKey*)_header->Keys);
-        if (IsSlotOccupied(_header->Bitset, slot))
-        {
-            return false;
-        }
+        int bucketIdx = FindBucket(key);
+        int entryIdxPlusOne = _header->Buckets[bucketIdx];
+        if (entryIdxPlusOne != 0) return false;
 
-        SetSlotOccupied(_header->Bitset, slot);
-        ((TKey*)_header->Keys)[slot] = key;
-        ((TValue*)_header->Values)[slot] = value;
-        _header->Count++;
+        int newEntryIdx = _header->Count++;
+        _header->Buckets[bucketIdx] = newEntryIdx + 1;
+        ((TKey*)_header->Keys)[newEntryIdx] = key;
+        ((TValue*)_header->Values)[newEntryIdx] = value;
         return true;
     }
 
@@ -183,82 +150,186 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
             Grow();
         }
 
-        int slot = GetSlot(key, _header->Capacity, _header->Bitset, (TKey*)_header->Keys);
-        if (!IsSlotOccupied(_header->Bitset, slot))
+        int bucketIdx = FindBucket(key);
+        int entryIdxPlusOne = _header->Buckets[bucketIdx];
+        if (entryIdxPlusOne == 0)
         {
-            SetSlotOccupied(_header->Bitset, slot);
-            ((TKey*)_header->Keys)[slot] = key;
-            _header->Count++;
+            int newEntryIdx = _header->Count++;
+            _header->Buckets[bucketIdx] = newEntryIdx + 1;
+            ((TKey*)_header->Keys)[newEntryIdx] = key;
+            ((TValue*)_header->Values)[newEntryIdx] = value;
         }
-        ((TValue*)_header->Values)[slot] = value;
+        else
+        {
+            ((TValue*)_header->Values)[entryIdxPlusOne - 1] = value;
+        }
     }
 
     private void Grow()
     {
         int oldCap = _header->Capacity;
         int newCap = oldCap * 2;
-        void* oldKeys = _header->Keys;
-        void* oldValues = _header->Values;
-        ulong* oldBitset = _header->Bitset;
+        int count = _header->Count;
+        TKey* oldKeys = (TKey*)_header->Keys;
+        TValue* oldValues = (TValue*)_header->Values;
 
-        AllocateTable(newCap);
+        int* newBuckets = (int*)_arena.Alloc((nuint)newCap * sizeof(int), align: 16);
+        TKey* newKeys = (TKey*)_arena.Alloc((nuint)newCap * (nuint)sizeof(TKey), align: (nuint)UnsafeHelpers.AlignOf<TKey>());
+        TValue* newValues = (TValue*)_arena.Alloc((nuint)newCap * (nuint)sizeof(TValue), align: (nuint)UnsafeHelpers.AlignOf<TValue>());
+
+        new Span<int>(newBuckets, newCap).Clear();
+        Unsafe.CopyBlockUnaligned(newKeys, oldKeys, (uint)(count * sizeof(TKey)));
+        Unsafe.CopyBlockUnaligned(newValues, oldValues, (uint)(count * sizeof(TValue)));
+
         _header->Capacity = newCap;
-        _header->Count = 0;
+        _header->Buckets = newBuckets;
+        _header->Keys = newKeys;
+        _header->Values = newValues;
 
-        for (int i = 0; i < oldCap; i++)
+        uint mask = (uint)newCap - 1;
+        for (int i = 0; i < count; i++)
         {
-            if (IsSlotOccupied(oldBitset, i))
-            {
-                AddInternal(((TKey*)oldKeys)[i], ((TValue*)oldValues)[i]);
-            }
+            uint hash = Hashing.Hash(newKeys[i]);
+            uint idx = hash & mask;
+            while (newBuckets[idx] != 0) idx = (idx + 1) & mask;
+            newBuckets[idx] = i + 1;
         }
     }
 
-    private void AddInternal(TKey key, TValue value)
-    {
-        int slot = GetSlot(key, _header->Capacity, _header->Bitset, (TKey*)_header->Keys);
-        SetSlotOccupied(_header->Bitset, slot);
-        ((TKey*)_header->Keys)[slot] = key;
-        ((TValue*)_header->Values)[slot] = value;
-        _header->Count++;
-    }
-
-    /// <inheritdoc cref="IDictionary{TKey,TValue}" />
     public bool ContainsKey(TKey key)
     {
         CheckAlive();
-        int slot = GetSlot(key, _header->Capacity, _header->Bitset, (TKey*)_header->Keys);
-        return IsSlotOccupied(_header->Bitset, slot);
+        int bucketIdx = FindBucket(key);
+        return _header->Buckets[bucketIdx] != 0;
     }
 
-    /// <inheritdoc cref="IDictionary{TKey,TValue}" />
-    public bool Remove(TKey key) => throw new NotSupportedException("ArenaDictionary does not support removal.");
+    /// <summary>
+    /// Specialized ContainsKey for ArenaString using ReadOnlySpan{char} to avoid allocations.
+    /// </summary>
+    public bool ContainsKey(ReadOnlySpan<char> key)
+    {
+        if (typeof(TKey) != typeof(ArenaString)) return false;
+        CheckAlive();
+        
+        uint capacity = (uint)_header->Capacity;
+        int* buckets = _header->Buckets;
+        ArenaString* keys = (ArenaString*)_header->Keys;
+        uint mask = capacity - 1;
+        uint hash = Hashing.HashString(key);
+        uint index = hash & mask;
 
-    /// <inheritdoc cref="IDictionary{TKey,TValue}" />
+        while (true)
+        {
+            int entryIdxPlusOne = buckets[index];
+            if (entryIdxPlusOne == 0) return false;
+            if (keys[entryIdxPlusOne - 1].Equals(key)) return true;
+            index = (index + 1) & mask;
+        }
+    }
+
     public bool TryGetValue(TKey key, out TValue value)
     {
         CheckAlive();
-        int slot = GetSlot(key, _header->Capacity, _header->Bitset, (TKey*)_header->Keys);
-        if (IsSlotOccupied(_header->Bitset, slot))
+        int bucketIdx = FindBucket(key);
+        int entryIdxPlusOne = _header->Buckets[bucketIdx];
+        if (entryIdxPlusOne != 0)
         {
-            value = ((TValue*)_header->Values)[slot];
+            value = ((TValue*)_header->Values)[entryIdxPlusOne - 1];
             return true;
         }
         value = default;
         return false;
     }
 
-    /// <inheritdoc />
+    /// <summary>
+    /// Specialized TryGetValue for ArenaString using ReadOnlySpan{char} to avoid allocations.
+    /// </summary>
+    public bool TryGetValue(ReadOnlySpan<char> key, out TValue value)
+    {
+        if (typeof(TKey) != typeof(ArenaString))
+        {
+            value = default;
+            return false;
+        }
+        CheckAlive();
+
+        uint capacity = (uint)_header->Capacity;
+        int* buckets = _header->Buckets;
+        ArenaString* keys = (ArenaString*)_header->Keys;
+        TValue* values = (TValue*)_header->Values;
+        uint mask = capacity - 1;
+        uint hash = Hashing.HashString(key);
+        uint index = hash & mask;
+
+        while (true)
+        {
+            int entryIdxPlusOne = buckets[index];
+            if (entryIdxPlusOne == 0) break;
+            if (keys[entryIdxPlusOne - 1].Equals(key))
+            {
+                value = values[entryIdxPlusOne - 1];
+                return true;
+            }
+            index = (index + 1) & mask;
+        }
+
+        value = default;
+        return false;
+    }
+
     public void Clear()
     {
         CheckAlive();
-        int bitsetWords = (_header->Capacity + 63) / 64;
-        new Span<ulong>(_header->Bitset, bitsetWords).Clear();
+        new Span<int>(_header->Buckets, _header->Capacity).Clear();
         _header->Count = 0;
     }
 
-    void ICollection<KeyValuePair<TKey, TValue>>.Add(KeyValuePair<TKey, TValue> item) => Add(item.Key, item.Value);
+    /// <summary>
+    /// Reduces memory usage and optimizes the hash table.
+    /// </summary>
+    public void TrimExcess()
+    {
+        CheckAlive();
+        int count = _header->Count;
+        if (count == 0)
+        {
+            _header->Capacity = 1;
+            AllocateTable(1);
+            return;
+        }
 
+        int newCap = 1;
+        while (newCap < count / LoadFactor) newCap <<= 1;
+        if (newCap >= _header->Capacity) return;
+
+        TKey* oldKeys = (TKey*)_header->Keys;
+        TValue* oldValues = (TValue*)_header->Values;
+
+        int* newBuckets = (int*)_arena.Alloc((nuint)newCap * sizeof(int), align: 16);
+        TKey* newKeys = (TKey*)_arena.Alloc((nuint)newCap * (nuint)sizeof(TKey), align: (nuint)UnsafeHelpers.AlignOf<TKey>());
+        TValue* newValues = (TValue*)_arena.Alloc((nuint)newCap * (nuint)sizeof(TValue), align: (nuint)UnsafeHelpers.AlignOf<TValue>());
+
+        new Span<int>(newBuckets, newCap).Clear();
+        Unsafe.CopyBlockUnaligned(newKeys, oldKeys, (uint)(count * sizeof(TKey)));
+        Unsafe.CopyBlockUnaligned(newValues, oldValues, (uint)(count * sizeof(TValue)));
+
+        _header->Capacity = newCap;
+        _header->Buckets = newBuckets;
+        _header->Keys = newKeys;
+        _header->Values = newValues;
+
+        uint mask = (uint)newCap - 1;
+        for (int i = 0; i < count; i++)
+        {
+            uint hash = Hashing.Hash(newKeys[i]);
+            uint idx = hash & mask;
+            while (newBuckets[idx] != 0) idx = (idx + 1) & mask;
+            newBuckets[idx] = i + 1;
+        }
+    }
+
+    public bool Remove(TKey key) => throw new NotSupportedException();
+    void ICollection<KeyValuePair<TKey, TValue>>.Add(KeyValuePair<TKey, TValue> item) => Add(item.Key, item.Value);
     bool ICollection<KeyValuePair<TKey, TValue>>.Contains(KeyValuePair<TKey, TValue> item)
     {
         if (TryGetValue(item.Key, out var value))
@@ -267,32 +338,26 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
         }
         return false;
     }
-
     void ICollection<KeyValuePair<TKey, TValue>>.CopyTo(KeyValuePair<TKey, TValue>[] array, int arrayIndex)
     {
         if (array == null) throw new ArgumentNullException(nameof(array));
         if (arrayIndex < 0 || arrayIndex > array.Length) throw new ArgumentOutOfRangeException(nameof(arrayIndex));
-        if (array.Length - arrayIndex < Count) throw new ArgumentException("Destination array is too small.");
-
+        if (array.Length - arrayIndex < Count) throw new ArgumentException("Destination array too small.");
         CheckAlive();
-        int i = 0;
-        foreach (var entry in this)
+        int count = _header->Count;
+        TKey* keys = (TKey*)_header->Keys;
+        TValue* values = (TValue*)_header->Values;
+        for (int i = 0; i < count; i++)
         {
-            array[arrayIndex + i++] = entry;
+            array[arrayIndex + i] = new KeyValuePair<TKey, TValue>(keys[i], values[i]);
         }
     }
-
     bool ICollection<KeyValuePair<TKey, TValue>>.Remove(KeyValuePair<TKey, TValue> item) => throw new NotSupportedException();
 
-    /// <inheritdoc />
     public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator() => new Enumerator(this);
-
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-    /// <summary>
-    /// Enumerator for <see cref="ArenaDictionary{TKey, TValue}"/>.
-    /// </summary>
-    public struct Enumerator : IEnumerator<KeyValuePair<TKey, TValue>>
+    public unsafe struct Enumerator : IEnumerator<KeyValuePair<TKey, TValue>>
     {
         private readonly ArenaDictionary<TKey, TValue> _dict;
         private int _index;
@@ -305,43 +370,29 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
             _current = default;
         }
 
-        /// <inheritdoc />
         public bool MoveNext()
         {
             _dict.CheckAlive();
             var header = _dict._header;
             if (header == null) return false;
-
-            int cap = header->Capacity;
-            ulong* bitset = header->Bitset;
-            TKey* keys = (TKey*)header->Keys;
-            TValue* values = (TValue*)header->Values;
-
-            while (++_index < cap)
+            if (++_index < header->Count)
             {
-                if (IsSlotOccupied(bitset, _index))
-                {
-                    _current = new KeyValuePair<TKey, TValue>(keys[_index], values[_index]);
-                    return true;
-                }
+                _current = new KeyValuePair<TKey, TValue>(((TKey*)header->Keys)[_index], ((TValue*)header->Values)[_index]);
+                return true;
             }
             return false;
         }
 
-        /// <inheritdoc />
         public KeyValuePair<TKey, TValue> Current => _current;
         object IEnumerator.Current => _current;
-
-        /// <inheritdoc />
         public void Dispose() { }
-
-        /// <inheritdoc />
         public void Reset() => _index = -1;
     }
 
-    private readonly struct KeyCollection(ArenaDictionary<TKey, TValue> dict) : ICollection<TKey>
+    private struct KeyCollection : ICollection<TKey>
     {
-        private readonly ArenaDictionary<TKey, TValue> _dict = dict;
+        private readonly ArenaDictionary<TKey, TValue> _dict;
+        public KeyCollection(ArenaDictionary<TKey, TValue> dict) => _dict = dict;
         public int Count => _dict.Count;
         public bool IsReadOnly => true;
         public void Add(TKey item) => throw new NotSupportedException();
@@ -349,38 +400,111 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
         public bool Contains(TKey item) => _dict.ContainsKey(item);
         public void CopyTo(TKey[] array, int arrayIndex)
         {
-            int i = 0;
-            foreach (var key in this) array[arrayIndex + i++] = key;
+            int count = _dict.Count;
+            unsafe
+            {
+                TKey* keys = (TKey*)_dict._header->Keys;
+                for (int i = 0; i < count; i++) array[arrayIndex + i] = keys[i];
+            }
         }
         public bool Remove(TKey item) => throw new NotSupportedException();
-        public IEnumerator<TKey> GetEnumerator()
-        {
-            foreach (var entry in _dict) yield return entry.Key;
-        }
+        public IEnumerator<TKey> GetEnumerator() => new KeyEnumerator(_dict);
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+        private unsafe struct KeyEnumerator : IEnumerator<TKey>
+        {
+            private readonly ArenaDictionary<TKey, TValue> _dict;
+            private int _index;
+            private TKey _current;
+
+            internal KeyEnumerator(ArenaDictionary<TKey, TValue> dict)
+            {
+                _dict = dict;
+                _index = -1;
+                _current = default;
+            }
+
+            public bool MoveNext()
+            {
+                _dict.CheckAlive();
+                var header = _dict._header;
+                if (header == null) return false;
+                if (++_index < header->Count)
+                {
+                    _current = ((TKey*)header->Keys)[_index];
+                    return true;
+                }
+                return false;
+            }
+
+            public TKey Current => _current;
+            object IEnumerator.Current => _current;
+            public void Dispose() { }
+            public void Reset() => _index = -1;
+        }
     }
 
-    private readonly struct ValueCollection(ArenaDictionary<TKey, TValue> dict) : ICollection<TValue>
+    private struct ValueCollection : ICollection<TValue>
     {
-        public int Count => dict.Count;
+        private readonly ArenaDictionary<TKey, TValue> _dict;
+        public ValueCollection(ArenaDictionary<TKey, TValue> dict) => _dict = dict;
+        public int Count => _dict.Count;
         public bool IsReadOnly => true;
         public void Add(TValue item) => throw new NotSupportedException();
         public void Clear() => throw new NotSupportedException();
         public bool Contains(TValue item)
         {
-            foreach (var v in this) if (EqualityComparer<TValue>.Default.Equals(v, item)) return true;
+            int count = _dict.Count;
+            unsafe
+            {
+                TValue* values = (TValue*)_dict._header->Values;
+                for (int i = 0; i < count; i++) if (EqualityComparer<TValue>.Default.Equals(values[i], item)) return true;
+            }
             return false;
         }
         public void CopyTo(TValue[] array, int arrayIndex)
         {
-            int i = 0;
-            foreach (var val in this) array[arrayIndex + i++] = val;
+            int count = _dict.Count;
+            unsafe
+            {
+                TValue* values = (TValue*)_dict._header->Values;
+                for (int i = 0; i < count; i++) array[arrayIndex + i] = values[i];
+            }
         }
         public bool Remove(TValue item) => throw new NotSupportedException();
-        public IEnumerator<TValue> GetEnumerator()
-        {
-            foreach (var entry in dict) yield return entry.Value;
-        }
+        public IEnumerator<TValue> GetEnumerator() => new ValueEnumerator(_dict);
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+        private unsafe struct ValueEnumerator : IEnumerator<TValue>
+        {
+            private readonly ArenaDictionary<TKey, TValue> _dict;
+            private int _index;
+            private TValue _current;
+
+            internal ValueEnumerator(ArenaDictionary<TKey, TValue> dict)
+            {
+                _dict = dict;
+                _index = -1;
+                _current = default;
+            }
+
+            public bool MoveNext()
+            {
+                _dict.CheckAlive();
+                var header = _dict._header;
+                if (header == null) return false;
+                if (++_index < header->Count)
+                {
+                    _current = ((TValue*)header->Values)[_index];
+                    return true;
+                }
+                return false;
+            }
+
+            public TValue Current => _current;
+            object IEnumerator.Current => _current;
+            public void Dispose() { }
+            public void Reset() => _index = -1;
+        }
     }
 }

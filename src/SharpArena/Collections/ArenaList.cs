@@ -146,24 +146,75 @@ public unsafe struct ArenaList<T>
             Grow();
         }
 
-        int index = _header->Count;
-        if ((uint)index >= (uint)_header->Capacity)
+        int index = _header->Count++;
+        ((T*)_header->Data)[index] = value;
+    }
+
+    /// <summary>
+    /// Appends all elements from the span to the list.
+    /// </summary>
+    /// <param name="span">The span of elements to add.</param>
+    public void AddRange(ReadOnlySpan<T> span)
+    {
+        CheckAliveThrowIfNot();
+        if (span.IsEmpty) return;
+
+        EnsureCapacity(_header->Count + span.Length);
+
+        fixed (T* src = span)
         {
-            throw new InvalidOperationException("ArenaList capacity overflow due to concurrent operations or logic bugs.");
+            Unsafe.CopyBlockUnaligned(
+                (byte*)_header->Data + (uint)_header->Count * (uint)sizeof(T),
+                src,
+                (uint)span.Length * (uint)sizeof(T));
         }
 
-        _header->Count = index + 1;
-        ((T*)_header->Data)[index] = value;
+        _header->Count += span.Length;
+    }
+
+    /// <summary>
+    /// Ensures that the list can hold at least the specified number of elements.
+    /// </summary>
+    /// <param name="min">The minimum capacity required.</param>
+    public void EnsureCapacity(int min)
+    {
+        CheckAliveThrowIfNot();
+        if (_header->Capacity < min)
+        {
+            int newCap = _header->Capacity == 0 ? 4 : _header->Capacity * 2;
+            if (newCap < min) newCap = min;
+            GrowTo(newCap);
+        }
+    }
+
+    /// <summary>
+    /// Reduces memory usage by shrinking the buffer to the current element count.
+    /// </summary>
+    public void TrimExcess()
+    {
+        CheckAliveThrowIfNot();
+        if (_header->Count < _header->Capacity)
+        {
+            GrowTo(_header->Count);
+        }
     }
 
     private void Grow()
     {
-        if (_header->Capacity > int.MaxValue / 2)
+        if (_header->Capacity >= int.MaxValue / 2)
         {
             throw new InvalidOperationException("ArenaList capacity overflow.");
         }
 
-        int newCap = _header->Capacity * 2;
+        int newCap = _header->Capacity == 0 ? 4 : _header->Capacity * 2;
+        GrowTo(newCap);
+    }
+
+    private void GrowTo(int newCap)
+    {
+        if (newCap < _header->Count) newCap = _header->Count;
+        if (newCap == _header->Capacity) return;
+
         ulong byteCount = (ulong)(uint)newCap * (ulong)sizeof(T);
         ulong oldByteCount = (ulong)(uint)_header->Count * (ulong)sizeof(T);
 
@@ -176,11 +227,14 @@ public unsafe struct ArenaList<T>
             (nuint)byteCount,
             align: (nuint)UnsafeHelpers.AlignOf<T>());
 
-        Buffer.MemoryCopy(
-            source: _header->Data,
-            destination: newPtr,
-            destinationSizeInBytes: byteCount,
-            sourceBytesToCopy: oldByteCount);
+        if (oldByteCount > 0)
+        {
+            Buffer.MemoryCopy(
+                source: _header->Data,
+                destination: newPtr,
+                destinationSizeInBytes: byteCount,
+                sourceBytesToCopy: oldByteCount);
+        }
 
         _header->Data = newPtr;
         _header->Capacity = newCap;
