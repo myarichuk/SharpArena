@@ -37,6 +37,8 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     /// <summary>
     /// Initializes a new instance of the <see cref="ArenaSet{T}"/> struct.
     /// </summary>
+    /// <param name="arena">The allocator providing unmanaged storage.</param>
+    /// <param name="initialCapacity">The initial capacity of the set. Will be rounded up to the nearest power of two.</param>
     public ArenaSet(ArenaAllocator arena, int initialCapacity = 16)
     {
         _arena = arena ?? throw new ArgumentNullException(nameof(arena));
@@ -88,6 +90,9 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         }
     }
 
+    /// <summary>
+    /// Gets the number of elements contained in the <see cref="ArenaSet{T}"/>.
+    /// </summary>
     public int Count
     {
         get
@@ -97,8 +102,16 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         }
     }
 
+    /// <summary>
+    /// Gets a value indicating whether the <see cref="ArenaSet{T}"/> is read-only.
+    /// </summary>
     public bool IsReadOnly => false;
 
+    /// <summary>
+    /// Adds an element to the current set and returns a value to indicate if the element was successfully added.
+    /// </summary>
+    /// <param name="item">The element to add to the set.</param>
+    /// <returns><see langword="true"/> if the element is added to the set; <see langword="false"/> if the element is already in the set.</returns>
     public bool Add(T item)
     {
         CheckAlive();
@@ -152,6 +165,9 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         }
     }
 
+    /// <summary>
+    /// Removes all elements from the <see cref="ArenaSet{T}"/>.
+    /// </summary>
     public void Clear()
     {
         CheckAlive();
@@ -159,6 +175,11 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         _header->Count = 0;
     }
 
+    /// <summary>
+    /// Determines whether the <see cref="ArenaSet{T}"/> contains a specific value.
+    /// </summary>
+    /// <param name="item">The object to locate in the <see cref="ArenaSet{T}"/>.</param>
+    /// <returns><see langword="true"/> if <paramref name="item"/> is found in the <see cref="ArenaSet{T}"/>; otherwise, <see langword="false"/>.</returns>
     public bool Contains(T item)
     {
         CheckAlive();
@@ -167,16 +188,18 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     }
 
     /// <summary>
-    /// Specialized Contains for ArenaString using ReadOnlySpan{char} to avoid allocations.
+    /// Specialized Contains for ArenaUtf16String using ReadOnlySpan{char} to avoid allocations.
     /// </summary>
+    /// <param name="item">The object to locate in the <see cref="ArenaSet{T}"/>.</param>
+    /// <returns><see langword="true"/> if <paramref name="item"/> is found in the <see cref="ArenaSet{T}"/>; otherwise, <see langword="false"/>.</returns>
     public bool Contains(ReadOnlySpan<char> item)
     {
-        if (typeof(T) != typeof(ArenaString)) return false;
+        if (typeof(T) != typeof(ArenaUtf16String)) return false;
         CheckAlive();
         
         var capacity = _header->Capacity;
         var buckets = _header->Buckets;
-        var entries = (ArenaString*)_header->Entries;
+        var entries = (ArenaUtf16String*)_header->Entries;
         var mask = (uint)capacity - 1;
         var hash = Hashing.HashString(item);
         var index = hash & mask;
@@ -195,6 +218,8 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     /// <summary>
     /// Specialized Contains for ArenaUtf8String using ReadOnlySpan{byte} to avoid allocations.
     /// </summary>
+    /// <param name="item">The object to locate in the <see cref="ArenaSet{T}"/>.</param>
+    /// <returns><see langword="true"/> if <paramref name="item"/> is found in the <see cref="ArenaSet{T}"/>; otherwise, <see langword="false"/>.</returns>
     public bool Contains(ReadOnlySpan<byte> item)
     {
         if (typeof(T) != typeof(ArenaUtf8String)) return false;
@@ -218,6 +243,14 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         }
     }
 
+    /// <summary>
+    /// Copies the elements of the <see cref="ArenaSet{T}"/> to an array, starting at a particular array index.
+    /// </summary>
+    /// <param name="array">The one-dimensional array that is the destination of the elements copied from <see cref="ArenaSet{T}"/>. The array must have zero-based indexing.</param>
+    /// <param name="arrayIndex">The zero-based index in <paramref name="array"/> at which copying begins.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="array"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="arrayIndex"/> is less than 0.</exception>
+    /// <exception cref="ArgumentException">The number of elements in the source <see cref="ArenaSet{T}"/> is greater than the available space from <paramref name="arrayIndex"/> to the end of the destination <paramref name="array"/>.</exception>
     public void CopyTo(T[] array, int arrayIndex)
     {
         if (array == null) throw new ArgumentNullException(nameof(array));
@@ -274,11 +307,22 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         }
     }
 
+    /// <summary>
+    /// Removes the first occurrence of a specific object from the <see cref="ArenaSet{T}"/>. Not supported.
+    /// </summary>
     public bool Remove(T item) => throw new NotSupportedException("ArenaSet does not support removal.");
     void ICollection<T>.Add(T item) => Add(item);
+
+    /// <summary>
+    /// Returns an enumerator that iterates through the <see cref="ArenaSet{T}"/>.
+    /// </summary>
+    /// <returns>A <see cref="IEnumerator{T}"/> for the <see cref="ArenaSet{T}"/>.</returns>
     public IEnumerator<T> GetEnumerator() => new Enumerator(this);
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
+    /// <summary>
+    /// Enumerates the elements of an <see cref="ArenaSet{T}"/>.
+    /// </summary>
     public unsafe struct Enumerator : IEnumerator<T>
     {
         private readonly ArenaSet<T> _set;
@@ -292,6 +336,10 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
             _current = default;
         }
 
+        /// <summary>
+        /// Advances the enumerator to the next element of the <see cref="ArenaSet{T}"/>.
+        /// </summary>
+        /// <returns><see langword="true"/> if the enumerator was successfully advanced to the next element; <see langword="false"/> if the enumerator has passed the end of the collection.</returns>
         public bool MoveNext()
         {
             _set.CheckAlive();
@@ -306,15 +354,36 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
             return false;
         }
 
+        /// <summary>
+        /// Gets the element in the collection at the current position of the enumerator.
+        /// </summary>
         public T Current => _current;
+
+        /// <summary>
+        /// Gets the element in the collection at the current position of the enumerator.
+        /// </summary>
         object IEnumerator.Current => _current;
+
+        /// <summary>
+        /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
+        /// </summary>
         public void Dispose() { }
+
+        /// <summary>
+        /// Sets the enumerator to its initial position, which is before the first element in the collection.
+        /// </summary>
         public void Reset() => _index = -1;
     }
 
     #region ISet Implementation
+    /// <summary>Not supported.</summary>
     public void ExceptWith(IEnumerable<T> other) => throw new NotSupportedException();
+    /// <summary>Not supported.</summary>
     public void IntersectWith(IEnumerable<T> other) => throw new NotSupportedException();
+
+    /// <summary>
+    /// Determines whether the current set is a proper (strict) subset of a specified collection.
+    /// </summary>
     public bool IsProperSubsetOf(IEnumerable<T> other)
     {
         if (other == null) throw new ArgumentNullException(nameof(other));
@@ -328,6 +397,10 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         }
         return otherSet.Count > matchCount;
     }
+
+    /// <summary>
+    /// Determines whether the current set is a proper (strict) superset of a specified collection.
+    /// </summary>
     public bool IsProperSupersetOf(IEnumerable<T> other)
     {
         if (other == null) throw new ArgumentNullException(nameof(other));
@@ -340,6 +413,10 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         }
         return Count > otherCount;
     }
+
+    /// <summary>
+    /// Determines whether a set is a subset of a specified collection.
+    /// </summary>
     public bool IsSubsetOf(IEnumerable<T> other)
     {
         if (other == null) throw new ArgumentNullException(nameof(other));
@@ -352,6 +429,10 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         }
         return true;
     }
+
+    /// <summary>
+    /// Determines whether the current set is a superset of a specified collection.
+    /// </summary>
     public bool IsSupersetOf(IEnumerable<T> other)
     {
         if (other == null) throw new ArgumentNullException(nameof(other));
@@ -362,6 +443,10 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         }
         return true;
     }
+
+    /// <summary>
+    /// Determines whether the current set overlaps with the specified collection.
+    /// </summary>
     public bool Overlaps(IEnumerable<T> other)
     {
         if (other == null) throw new ArgumentNullException(nameof(other));
@@ -372,6 +457,10 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         }
         return false;
     }
+
+    /// <summary>
+    /// Determines whether the current set and the specified collection contain the same elements.
+    /// </summary>
     public bool SetEquals(IEnumerable<T> other)
     {
         if (other == null) throw new ArgumentNullException(nameof(other));
@@ -384,7 +473,13 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         }
         return Count == otherCount;
     }
+
+    /// <summary>Not supported.</summary>
     public void SymmetricExceptWith(IEnumerable<T> other) => throw new NotSupportedException();
+
+    /// <summary>
+    /// Modifies the current set so that it contains all elements that are present in the current set, in the specified collection, or in both.
+    /// </summary>
     public void UnionWith(IEnumerable<T> other)
     {
         if (other == null) throw new ArgumentNullException(nameof(other));

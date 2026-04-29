@@ -5,7 +5,7 @@ using Xunit;
 
 namespace SharpArena.Tests.Collections;
 
-public unsafe class ArenaStringTests : IDisposable
+public unsafe class ArenaUtf16StringTests : IDisposable
 {
     private readonly ArenaAllocator _arena = new();
 
@@ -14,17 +14,17 @@ public unsafe class ArenaStringTests : IDisposable
     [Fact]
     public void Clone_EmptySpan_ReturnsEmpty()
     {
-        var result = ArenaString.Clone(ReadOnlySpan<char>.Empty, _arena);
+        var result = ArenaUtf16String.Clone(ReadOnlySpan<char>.Empty, _arena);
         result.IsEmpty.Should().BeTrue();
         result.Length.Should().Be(0);
         result.ToString().Should().Be(string.Empty);
     }
 
     [Fact]
-    public void Clone_ValidSpan_ReturnsArenaString()
+    public void Clone_ValidSpan_ReturnsArenaUtf16String()
     {
         var text = "Hello, World!";
-        var result = ArenaString.Clone(text, _arena);
+        var result = ArenaUtf16String.Clone(text, _arena);
 
         result.IsEmpty.Should().BeFalse();
         result.Length.Should().Be(text.Length);
@@ -35,19 +35,19 @@ public unsafe class ArenaStringTests : IDisposable
     public void Equals_ReadOnlySpan_ReturnsTrueIfEqual()
     {
         var text = "Test String";
-        var result = ArenaString.Clone(text, _arena);
+        var result = ArenaUtf16String.Clone(text, _arena);
 
         result.Equals(text.AsSpan()).Should().BeTrue();
         result.Equals("Different".AsSpan()).Should().BeFalse();
     }
 
     [Fact]
-    public void Equals_ArenaString_ReturnsTrueIfEqual()
+    public void Equals_ArenaUtf16String_ReturnsTrueIfEqual()
     {
         var text = "Test String";
-        var str1 = ArenaString.Clone(text, _arena);
-        var str2 = ArenaString.Clone(text, _arena);
-        var str3 = ArenaString.Clone("Different", _arena);
+        var str1 = ArenaUtf16String.Clone(text, _arena);
+        var str2 = ArenaUtf16String.Clone(text, _arena);
+        var str3 = ArenaUtf16String.Clone("Different", _arena);
 
         str1.Equals(str2).Should().BeTrue();
         str1.Equals(str3).Should().BeFalse();
@@ -59,8 +59,8 @@ public unsafe class ArenaStringTests : IDisposable
     public void Equals_Object_ReturnsTrueIfEqual()
     {
         var text = "Test String";
-        var str1 = ArenaString.Clone(text, _arena);
-        var str2 = ArenaString.Clone(text, _arena);
+        var str1 = ArenaUtf16String.Clone(text, _arena);
+        var str2 = ArenaUtf16String.Clone(text, _arena);
 
         str1.Equals((object)str2).Should().BeTrue();
         str1.Equals(new object()).Should().BeFalse();
@@ -69,8 +69,8 @@ public unsafe class ArenaStringTests : IDisposable
     [Fact]
     public void GetHashCode_ReturnsEqualForEqualContentAcrossClones()
     {
-        var str1 = ArenaString.Clone("Test String", _arena);
-        var str2 = ArenaString.Clone("Test String", _arena);
+        var str1 = ArenaUtf16String.Clone("Test String", _arena);
+        var str2 = ArenaUtf16String.Clone("Test String", _arena);
 
         str1.Equals(str2).Should().BeTrue();
         str1.GetHashCode().Should().Be(str2.GetHashCode());
@@ -79,8 +79,8 @@ public unsafe class ArenaStringTests : IDisposable
     [Fact]
     public void GetHashCode_ReturnsDifferentForDifferentContent()
     {
-        var str1 = ArenaString.Clone("Test String", _arena);
-        var str2 = ArenaString.Clone("Different", _arena);
+        var str1 = ArenaUtf16String.Clone("Test String", _arena);
+        var str2 = ArenaUtf16String.Clone("Different", _arena);
 
         str1.Equals(str2).Should().BeFalse();
         str1.GetHashCode().Should().NotBe(str2.GetHashCode());
@@ -90,7 +90,7 @@ public unsafe class ArenaStringTests : IDisposable
     public void Slice_ValidRange_ReturnsSubstring()
     {
         var text = "Hello, World!";
-        var str = ArenaString.Clone(text, _arena);
+        var str = ArenaUtf16String.Clone(text, _arena);
 
         var slice = str.Slice(7, 5);
         slice.ToString().Should().Be("World");
@@ -100,7 +100,7 @@ public unsafe class ArenaStringTests : IDisposable
     public void Slice_NegativeStart_ThrowsArgumentOutOfRangeException()
     {
         var text = "Hello, World!";
-        var str = ArenaString.Clone(text, _arena);
+        var str = ArenaUtf16String.Clone(text, _arena);
 
         var act = () => str.Slice(-1, 2);
 
@@ -112,7 +112,7 @@ public unsafe class ArenaStringTests : IDisposable
     public void Slice_NegativeLength_ThrowsArgumentOutOfRangeException()
     {
         var text = "Hello, World!";
-        var str = ArenaString.Clone(text, _arena);
+        var str = ArenaUtf16String.Clone(text, _arena);
 
         var act = () => str.Slice(0, -1);
 
@@ -124,7 +124,7 @@ public unsafe class ArenaStringTests : IDisposable
     public void Slice_Overrun_ThrowsArgumentOutOfRangeException()
     {
         var text = "Hello, World!";
-        var str = ArenaString.Clone(text, _arena);
+        var str = ArenaUtf16String.Clone(text, _arena);
 
         var act = () => str.Slice(10, 10);
 
@@ -136,7 +136,7 @@ public unsafe class ArenaStringTests : IDisposable
     public void Slice_IntegerOverflow_ThrowsArgumentOutOfRangeException()
     {
         var text = "Hello, World!";
-        var str = ArenaString.Clone(text, _arena);
+        var str = ArenaUtf16String.Clone(text, _arena);
 
         var act = () => str.Slice(int.MaxValue - 5, 10);
 
@@ -148,7 +148,7 @@ public unsafe class ArenaStringTests : IDisposable
     public void ImplicitOperator_ToReadOnlySpan_Works()
     {
         var text = "Hello";
-        var str = ArenaString.Clone(text, _arena);
+        var str = ArenaUtf16String.Clone(text, _arena);
 
         ReadOnlySpan<char> span = str;
         span.SequenceEqual(text.AsSpan()).Should().BeTrue();
@@ -157,7 +157,7 @@ public unsafe class ArenaStringTests : IDisposable
     [Fact]
     public void Verify_AfterReset_ThrowsObjectDisposedException()
     {
-        var str = ArenaString.Clone("Hello", _arena);
+        var str = ArenaUtf16String.Clone("Hello", _arena);
 
         _arena.Reset();
 
@@ -168,7 +168,7 @@ public unsafe class ArenaStringTests : IDisposable
     [Fact]
     public void IsAlive_ReflectsArenaState()
     {
-        var str = ArenaString.Clone("Hello", _arena);
+        var str = ArenaUtf16String.Clone("Hello", _arena);
 
         str.IsAlive(_arena).Should().BeTrue();
 
@@ -181,10 +181,10 @@ public unsafe class ArenaStringTests : IDisposable
     public void Equals_IEquatable_ReturnsTrueIfEqual()
     {
         var text = "Test String";
-        var str1 = ArenaString.Clone(text, _arena);
-        var str2 = ArenaString.Clone(text, _arena);
+        var str1 = ArenaUtf16String.Clone(text, _arena);
+        var str2 = ArenaUtf16String.Clone(text, _arena);
 
-        IEquatable<ArenaString> equatable = str1;
+        IEquatable<ArenaUtf16String> equatable = str1;
         equatable.Equals(str2).Should().BeTrue();
     }
 }

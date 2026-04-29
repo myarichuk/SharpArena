@@ -17,7 +17,7 @@ public class MathParserTests
         var tokens = new ArenaList<Token>(arena);
 
         // Manually create a token with an invalid number to bypass Tokenize's digit-only logic
-        var invalidNum = ArenaString.Clone("not-a-number", arena);
+        var invalidNum = ArenaUtf16String.Clone("not-a-number", arena);
         tokens.Add(new Token(TokenType.Number, invalidNum));
 
         // Act

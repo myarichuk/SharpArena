@@ -36,10 +36,10 @@ public unsafe class ArenaUtfStringTests : IDisposable
     }
 
     [Fact]
-    public void ArenaString_ToUtf8_EncodesCorrectly()
+    public void ArenaUtf16String_ToUtf8_EncodesCorrectly()
     {
         var text = "Hello encoding! 😊";
-        var str = ArenaString.Clone(text, _arena);
+        var str = ArenaUtf16String.Clone(text, _arena);
         
         var utf8 = str.ToUtf8(_arena);
         

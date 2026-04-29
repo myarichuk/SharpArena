@@ -45,12 +45,12 @@ public class ArenaMathParser
                 {
                     i++;
                 }
-                var val = ArenaString.Clone(input[start..i], arena);
+                var val = ArenaUtf16String.Clone(input[start..i], arena);
                 tokens.Add(new Token(TokenType.Number, val));
                 continue;
             }
 
-            var singleChar = ArenaString.Clone(input.Slice(i, 1), arena);
+            var singleChar = ArenaUtf16String.Clone(input.Slice(i, 1), arena);
             switch (c)
             {
                 case '+': tokens.Add(new Token(TokenType.Plus, singleChar)); break;
@@ -237,11 +237,11 @@ public unsafe struct Token
     }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="Token"/> struct using an <see cref="ArenaString"/>.
+    /// Initializes a new instance of the <see cref="Token"/> struct using an <see cref="ArenaUtf16String"/>.
     /// </summary>
     /// <param name="type">The token type.</param>
     /// <param name="str">The arena string containing the token text.</param>
-    public Token(TokenType type, ArenaString str)
+    public Token(TokenType type, ArenaUtf16String str)
     {
         Type = type;
         ValuePtr = str.RawPtr;
