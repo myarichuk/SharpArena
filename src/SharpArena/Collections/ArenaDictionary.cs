@@ -360,11 +360,9 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
-    private class ValueCollection : ICollection<TValue>
+    private readonly struct ValueCollection(ArenaDictionary<TKey, TValue> dict) : ICollection<TValue>
     {
-        private readonly ArenaDictionary<TKey, TValue> _dict;
-        public ValueCollection(ArenaDictionary<TKey, TValue> dict) => _dict = dict;
-        public int Count => _dict.Count;
+        public int Count => dict.Count;
         public bool IsReadOnly => true;
         public void Add(TValue item) => throw new NotSupportedException();
         public void Clear() => throw new NotSupportedException();
@@ -381,7 +379,7 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
         public bool Remove(TValue item) => throw new NotSupportedException();
         public IEnumerator<TValue> GetEnumerator()
         {
-            foreach (var entry in _dict) yield return entry.Value;
+            foreach (var entry in dict) yield return entry.Value;
         }
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
