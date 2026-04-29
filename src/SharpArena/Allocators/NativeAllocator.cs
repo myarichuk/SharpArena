@@ -57,6 +57,12 @@ public static unsafe class NativeAllocator
     private static readonly nuint HeaderSize = (nuint)sizeof(AllocationHeader);
     private static readonly nuint PageSize = (nuint)Environment.SystemPageSize;
 
+#if NET7_0_OR_GREATER
+    private const nuint MaxValue = nuint.MaxValue;
+#else
+    private static readonly nuint MaxValue = unchecked((nuint)ulong.MaxValue);
+#endif
+
     static NativeAllocator()
     {
 #if DEBUG
@@ -134,13 +140,21 @@ public static unsafe class NativeAllocator
             return null;
         }
 
-#if NET7_0_OR_GREATER
-        nuint max = nuint.MaxValue;
-#else
-        nuint max = unchecked((nuint)ulong.MaxValue);
+        // Proactive bounds check to prevent integer overflow during total size calculation and alignment.
+        // We must account for:
+        // 1. HeaderSize
+        // 2. Alignment padding (up to PageSize - 1)
+        // 3. Guard pages in DEBUG builds (2 * PageSize)
+        nuint overhead = HeaderSize;
+        if (backend is NativeAllocatorBackend.PlatformInvoke)
+        {
+            overhead += PageSize - 1; // Maximum possible padding from AlignUp
+#if DEBUG
+            overhead += 2 * PageSize; // Guard pages
 #endif
+        }
 
-        if (size > max - HeaderSize)
+        if (size > MaxValue - overhead)
         {
             throw new OutOfMemoryException("Native allocation failed due to integer overflow.");
         }
@@ -334,6 +348,12 @@ public static unsafe class NativeAllocator
     private static void AlignToPage(void* ptr, nuint length, out void* alignedPtr, out nuint alignedLength)
     {
         var address = (nuint)ptr;
+
+        if (length > MaxValue - address)
+        {
+            throw new ArgumentException("Pointer and length overflow address space.", nameof(length));
+        }
+
         var start = AlignDown(address, PageSize);
         var end = AlignUp(address + length, PageSize);
         alignedPtr = (void*)start;
