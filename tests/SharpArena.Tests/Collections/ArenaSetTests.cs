@@ -115,12 +115,12 @@ public class ArenaSetTests : IDisposable
     }
 
     [Fact]
-    public void ArenaString_WorksInSet()
+    public void ArenaUtf16String_WorksInSet()
     {
-        var set = new ArenaSet<ArenaString>(_arena);
-        var s1 = ArenaString.Clone("hello", _arena);
-        var s2 = ArenaString.Clone("world", _arena);
-        var s3 = ArenaString.Clone("hello", _arena);
+        var set = new ArenaSet<ArenaUtf16String>(_arena);
+        var s1 = ArenaUtf16String.Clone("hello", _arena);
+        var s2 = ArenaUtf16String.Clone("world", _arena);
+        var s3 = ArenaUtf16String.Clone("hello", _arena);
 
         set.Add(s1).Should().BeTrue();
         set.Add(s2).Should().BeTrue();
@@ -135,7 +135,7 @@ public class ArenaSetTests : IDisposable
     public void Slice_PreservesGeneration_ValidationSucceeds()
     {
         var text = "Hello, World!";
-        var str = ArenaString.Clone(text, _arena);
+        var str = ArenaUtf16String.Clone(text, _arena);
         var slice = str.Slice(7, 5);
 
         // Before the fix, this would throw because Slice lost the generation (became 0)

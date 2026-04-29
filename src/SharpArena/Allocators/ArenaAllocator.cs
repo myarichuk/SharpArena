@@ -22,6 +22,7 @@ public unsafe class ArenaAllocator : IDisposable
     private int _generation = 0;
     
     private nuint _peakBytes;
+    private nuint _allocatedBytes;
 
     /// <summary>
     /// Returns the current generation (incremented between Reset())
@@ -31,23 +32,7 @@ public unsafe class ArenaAllocator : IDisposable
     /// <summary>
     /// Gets the total number of bytes currently allocated from the arena.
     /// </summary>
-    public nuint AllocatedBytes
-    {
-        get
-        {
-            nuint total = 0;
-            var current = _current;
-            for (var seg = _first; seg != null; seg = seg->Next)
-            {
-                total += seg->Offset;
-                if (seg == current)
-                {
-                    break;
-                }
-            }
-            return total;
-        }
-    }
+    public nuint AllocatedBytes => _allocatedBytes;
 
     /// <summary>
     /// Gets the peak number of bytes allocated from the arena over its lifetime.
@@ -102,8 +87,10 @@ public unsafe class ArenaAllocator : IDisposable
         }
 
         align = AlignUp(align, (nuint)IntPtr.Size);
+        var oldOffset = seg->Offset;
         if (seg->TryAlloc(size, align, out var ptr))
         {
+            _allocatedBytes += (seg->Offset - oldOffset);
             return ptr;
         }
 
@@ -112,6 +99,19 @@ public unsafe class ArenaAllocator : IDisposable
             if (_disposed)
             {
                 throw new ObjectDisposedException(nameof(ArenaAllocator));
+            }
+
+            if (seg->Next != null)
+            {
+                seg = seg->Next;
+                _current = seg;
+                oldOffset = seg->Offset;
+                if (seg->TryAlloc(size, align, out ptr))
+                {
+                    _allocatedBytes += (seg->Offset - oldOffset);
+                    return ptr;
+                }
+                continue;
             }
 
             var nextSize = NextSegmentSize(seg->Size, size);
@@ -131,8 +131,10 @@ public unsafe class ArenaAllocator : IDisposable
             _current = newSeg;
             seg = newSeg;
 
+            oldOffset = seg->Offset;
             if (seg->TryAlloc(size, align, out ptr))
             {
+                _allocatedBytes += (seg->Offset - oldOffset);
                 return ptr;
             }
 
@@ -246,6 +248,7 @@ public unsafe class ArenaAllocator : IDisposable
             seg->Offset = 0;
         }
 
+        _allocatedBytes = 0;
         _current = _first;
         _generation++;
     }

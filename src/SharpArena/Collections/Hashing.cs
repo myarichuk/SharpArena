@@ -9,9 +9,9 @@ internal static unsafe class Hashing
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static uint Hash<T>(T value) where T : unmanaged
     {
-        if (typeof(T) == typeof(ArenaString))
+        if (typeof(T) == typeof(ArenaUtf16String))
         {
-            return (uint)Unsafe.As<T, ArenaString>(ref value).GetHashCode();
+            return (uint)Unsafe.As<T, ArenaUtf16String>(ref value).GetHashCode();
         }
         if (typeof(T) == typeof(ArenaUtf8String))
         {

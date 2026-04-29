@@ -4,7 +4,6 @@ using System.Collections;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 // ReSharper disable UnusedMember.Global
-#pragma warning disable CS1591 // Missing XML comment for publicly visible type or member
 
 namespace SharpArena.Collections;
 
@@ -214,9 +213,6 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
     /// <summary>
     /// Provides a value-type enumerator for iterating over the block list contents.
     /// </summary>
-    /// <summary>
-    /// Provides a value-type enumerator for iterating over the block list contents.
-    /// </summary>
     public struct Enumerator : IEnumerator<T>
     {
         private readonly ArenaAllocator _arena;
@@ -236,9 +232,20 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
             _current = default;
         }
 
+        /// <summary>
+        /// Gets the element in the collection at the current position of the enumerator.
+        /// </summary>
         public T Current => _current;
+
+        /// <summary>
+        /// Gets the element in the collection at the current position of the enumerator.
+        /// </summary>
         object IEnumerator.Current => _current!;
 
+        /// <summary>
+        /// Advances the enumerator to the next element of the collection.
+        /// </summary>
+        /// <returns><see langword="true"/> if the enumerator was successfully advanced to the next element; <see langword="false"/> if the enumerator has passed the end of the collection.</returns>
         public bool MoveNext()
         {
             ThrowIfArenaDead();
@@ -269,6 +276,9 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
             }
         }
 
+        /// <summary>
+        /// Sets the enumerator to its initial position, which is before the first element in the collection.
+        /// </summary>
         public void Reset()
         {
             ThrowIfArenaDead();
@@ -277,7 +287,9 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
             _current = default;
         }
 
-        /// <inheritdoc />
+        /// <summary>
+        /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
+        /// </summary>
         public void Dispose()
         {
             // Nothing to dispose

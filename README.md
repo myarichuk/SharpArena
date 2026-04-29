@@ -8,7 +8,7 @@ Zero-alloc arena allocator + collections for high-perf parsers.
 Check out the samples directory for complete, end-to-end examples of building a math expression parser with zero managed allocations (outside the arena).
 **Now with Blazor WebAssembly demo — zero managed allocations in the browser**
 
-- [**SimpleMathParser**](samples/SimpleMathParser/) [![Try SimpleMathParser](https://img.shields.io/badge/Try%20it-SimpleMathParser-blue)](samples/SimpleMathParser/): A standard .NET console app using `ArenaList`, `ArenaPtrStack`, and `ArenaString` to tokenize and evaluate expressions.
+- [**SimpleMathParser**](samples/SimpleMathParser/) [![Try SimpleMathParser](https://img.shields.io/badge/Try%20it-SimpleMathParser-blue)](samples/SimpleMathParser/): A standard .NET console app using `ArenaList`, `ArenaPtrStack`, and `ArenaUtf16String` to tokenize and evaluate expressions.
 - [**BlazorMathSymbolicCalculator**](samples/BlazorMathSymbolicCalculator/) [![Try BlazorMathSymbolicCalculator](https://img.shields.io/badge/Try%20it-BlazorMathSymbolicCalculator-purple)](samples/BlazorMathSymbolicCalculator/): A symbolic calculator Blazor WebAssembly app evaluating math equations in-browser natively without garbage collection.
 
 ### Reusable Parser Example
@@ -43,14 +43,14 @@ arena.Reset();
 
 SharpArena includes several collection types designed to be backed by the arena allocator. These collections allocate memory from the arena and become invalid when the arena is reset or disposed. They avoid normal GC allocations.
 
-### ArenaString
+### ArenaUtf16String
 A non-owning view of UTF-16 text stored in unmanaged (arena) memory.
 
 ```csharp
 using SharpArena.Collections;
 
 // Clone a managed string or span into the arena
-var str = ArenaString.Clone("Hello, World!", arena);
+var str = ArenaUtf16String.Clone("Hello, World!", arena);
 
 // Can be implicitly cast to ReadOnlySpan<char>
 ReadOnlySpan<char> span = str;
@@ -59,8 +59,8 @@ ReadOnlySpan<char> span = str;
 Console.WriteLine(str.ToString());
 ```
 
-`ArenaString` equality and hash codes are both content-based (character data + length), so separately cloned but equal text compares and hashes the same.
-**When to use:** Use `ArenaString` when you need to store substrings, tokens, or parsed text during parsing or processing without creating `System.String` allocations for every token.
+`ArenaUtf16String` equality and hash codes are both content-based (character data + length), so separately cloned but equal text compares and hashes the same.
+**When to use:** Use `ArenaUtf16String` when you need to store substrings, tokens, or parsed text during parsing or processing without creating `System.String` allocations for every token.
 
 ### ArenaList
 A dynamic array (list) backed by the arena for unmanaged structs.
@@ -119,7 +119,7 @@ To achieve maximum performance and zero overhead on the hot path, `ArenaAllocato
 
 - **One Arena Per Thread:** You should create a separate `ArenaAllocator` instance for each thread or use a `[ThreadStatic]` field.
 - **No Concurrent Access:** Do not call `Alloc`, `Reset`, or `Dispose` concurrently from multiple threads on the same instance.
-- **Single-Threaded Collections:** Collections like `ArenaList<T>` and `ArenaString` are intended to be used within the same thread that owns the arena.
+- **Single-Threaded Collections:** Collections like `ArenaList<T>` and `ArenaUtf16String` are intended to be used within the same thread that owns the arena.
 
 ## Benchmarks
 See `bench/ArenaBench.md` for performance numbers compared to NativeMemory and Varena.

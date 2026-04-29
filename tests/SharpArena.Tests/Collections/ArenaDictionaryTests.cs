@@ -96,18 +96,18 @@ public class ArenaDictionaryTests : IDisposable
     }
 
     [Fact]
-    public void ArenaString_AsKey_WorksCorrectly()
+    public void ArenaUtf16String_AsKey_WorksCorrectly()
     {
-        var dict = new ArenaDictionary<ArenaString, int>(_arena);
-        var s1 = ArenaString.Clone("key1", _arena);
-        var s2 = ArenaString.Clone("key2", _arena);
+        var dict = new ArenaDictionary<ArenaUtf16String, int>(_arena);
+        var s1 = ArenaUtf16String.Clone("key1", _arena);
+        var s2 = ArenaUtf16String.Clone("key2", _arena);
 
         dict.Add(s1, 1);
         dict.Add(s2, 2);
 
-        dict[ArenaString.Clone("key1", _arena)].Should().Be(1); // Content equality check
-        dict.ContainsKey(ArenaString.Clone("key2", _arena)).Should().BeTrue();
-        dict.ContainsKey(ArenaString.Clone("key3", _arena)).Should().BeFalse();
+        dict[ArenaUtf16String.Clone("key1", _arena)].Should().Be(1); // Content equality check
+        dict.ContainsKey(ArenaUtf16String.Clone("key2", _arena)).Should().BeTrue();
+        dict.ContainsKey(ArenaUtf16String.Clone("key3", _arena)).Should().BeFalse();
     }
 
     [Fact]

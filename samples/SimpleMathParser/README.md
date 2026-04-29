@@ -12,7 +12,7 @@ It implements a simple Shunting Yard algorithm for tokenizing and evaluating bas
 
 ## What it Demonstrates
 - Using `ArenaAllocator` to manage memory for all parser state.
-- Tokenizing input strings with minimal overhead using `ArenaString`.
+- Tokenizing input strings with minimal overhead using `ArenaUtf16String`.
 - Storing token streams efficiently with `ArenaList<T>`.
 - Using `ArenaPtrStack<T>` to manage operator stacks without GC pressure.
 - Gracefully handling and reporting syntax errors.

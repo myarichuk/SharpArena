@@ -13,14 +13,14 @@ public unsafe class ReproduceIssueTests : IDisposable
     public void Dispose() => _arena.Dispose();
 
     [Fact]
-    public void ArenaList_Of_ArenaString_ShouldCompileAndWork()
+    public void ArenaList_Of_ArenaUtf16String_ShouldCompileAndWork()
     {
-        // This test confirms that ArenaString satisfies the 'unmanaged' constraint
+        // This test confirms that ArenaUtf16String satisfies the 'unmanaged' constraint
         // required by ArenaList<T>.
-        var list = new ArenaList<ArenaString>(_arena);
+        var list = new ArenaList<ArenaUtf16String>(_arena);
         
-        var s1 = ArenaString.Clone("Hello", _arena);
-        var s2 = ArenaString.Clone("World", _arena);
+        var s1 = ArenaUtf16String.Clone("Hello", _arena);
+        var s2 = ArenaUtf16String.Clone("World", _arena);
         
         list.Add(s1);
         list.Add(s2);
@@ -37,12 +37,12 @@ public unsafe class ReproduceIssueTests : IDisposable
     }
 
     [Fact]
-    public void ArenaBlockList_Of_ArenaString_ShouldCompileAndWork()
+    public void ArenaBlockList_Of_ArenaUtf16String_ShouldCompileAndWork()
     {
-        var list = new ArenaBlockList<ArenaString>(_arena);
+        var list = new ArenaBlockList<ArenaUtf16String>(_arena);
 
-        var s1 = ArenaString.Clone("Hello", _arena);
-        var s2 = ArenaString.Clone("World", _arena);
+        var s1 = ArenaUtf16String.Clone("Hello", _arena);
+        var s2 = ArenaUtf16String.Clone("World", _arena);
 
         list.Add(s1);
         list.Add(s2);
@@ -54,12 +54,12 @@ public unsafe class ReproduceIssueTests : IDisposable
     }
 
     [Fact]
-    public void ArenaPtrStack_Of_ArenaString_ShouldCompileAndWork()
+    public void ArenaPtrStack_Of_ArenaUtf16String_ShouldCompileAndWork()
     {
-        var stack = new ArenaPtrStack<ArenaString>(_arena);
+        var stack = new ArenaPtrStack<ArenaUtf16String>(_arena);
 
-        var s1 = ArenaString.Clone("Hello", _arena);
-        var s2 = ArenaString.Clone("World", _arena);
+        var s1 = ArenaUtf16String.Clone("Hello", _arena);
+        var s2 = ArenaUtf16String.Clone("World", _arena);
 
         stack.Push(&s1);
         stack.Push(&s2);
