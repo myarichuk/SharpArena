@@ -1,3 +1,4 @@
+using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -57,6 +58,12 @@ public static unsafe class NativeAllocator
     private static readonly nuint HeaderSize = (nuint)sizeof(AllocationHeader);
     private static readonly nuint PageSize = (nuint)Environment.SystemPageSize;
 
+#if NET7_0_OR_GREATER
+    private static readonly nuint MaxValue = nuint.MaxValue;
+#else
+    private static readonly nuint MaxValue = unchecked((nuint)ulong.MaxValue);
+#endif
+
     static NativeAllocator()
     {
 #if DEBUG
@@ -77,8 +84,7 @@ public static unsafe class NativeAllocator
 #endif
     }
 
-    private static bool IsWindowsPlatform()
-        => RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+    private static readonly bool IsWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
 
     // ConcurrentDictionary ensures async/thread safety
 #if DEBUG
@@ -134,13 +140,21 @@ public static unsafe class NativeAllocator
             return null;
         }
 
-#if NET7_0_OR_GREATER
-        nuint max = nuint.MaxValue;
-#else
-        nuint max = unchecked((nuint)ulong.MaxValue);
+        // Proactive bounds check to prevent integer overflow during total size calculation and alignment.
+        // We must account for:
+        // 1. HeaderSize
+        // 2. Alignment padding (up to PageSize - 1)
+        // 3. Guard pages in DEBUG builds (2 * PageSize)
+        nuint overhead = HeaderSize;
+        if (backend is NativeAllocatorBackend.PlatformInvoke)
+        {
+            overhead += PageSize - 1; // Maximum possible padding from AlignUp
+#if DEBUG
+            overhead += 2 * PageSize; // Guard pages
 #endif
+        }
 
-        if (size > max - HeaderSize)
+        if (size > MaxValue - overhead)
         {
             throw new OutOfMemoryException("Native allocation failed due to integer overflow.");
         }
@@ -180,7 +194,7 @@ public static unsafe class NativeAllocator
 #else
             NativeAllocatorBackend.DotNetUnmanaged => (void*)Marshal.AllocHGlobal(checked((nint)total)),
 #endif
-            _ when IsWindowsPlatform()
+            _ when IsWindows
                 => (void*)Native.VirtualAlloc(0, alignedTotal, Native.MEM_RESERVE | Native.MEM_COMMIT, Native.PAGE_READWRITE),
             _ => (void*)Native.mmap(IntPtr.Zero, alignedTotal, Native.PROT_READ | Native.PROT_WRITE,
                                     Native.MAP_PRIVATE | Native.MAP_ANONYMOUS, -1, 0),
@@ -310,7 +324,7 @@ public static unsafe class NativeAllocator
                 return;
 
             case NativeAllocatorBackend.PlatformInvoke:
-                if (IsWindowsPlatform())
+                if (IsWindows)
                 {
                     if (!Native.VirtualFree(rawPtr, 0, Native.MEM_RELEASE))
                     {
@@ -329,11 +343,17 @@ public static unsafe class NativeAllocator
     }
 
     private static bool IsMmapFailure(void* ptr)
-        => !IsWindowsPlatform() && (nint)ptr == -1;
+        => !IsWindows && (nint)ptr == -1;
 
     private static void AlignToPage(void* ptr, nuint length, out void* alignedPtr, out nuint alignedLength)
     {
         var address = (nuint)ptr;
+
+        if (length > MaxValue - address)
+        {
+            throw new ArgumentException("Pointer and length overflow address space.", nameof(length));
+        }
+
         var start = AlignDown(address, PageSize);
         var end = AlignUp(address + length, PageSize);
         alignedPtr = (void*)start;
@@ -365,7 +385,7 @@ public static unsafe class NativeAllocator
 #if !DEBUG
     private static bool IsPointerFreed(void* userPtr)
     {
-        if (IsWindowsPlatform())
+        if (IsWindows)
         {
             var querySize = (nuint)Unsafe.SizeOf<Native.MEMORY_BASIC_INFORMATION>();
             if (Native.VirtualQuery((nint)userPtr, out var info, querySize) == 0)
@@ -423,7 +443,7 @@ public static unsafe class NativeAllocator
             return;
         }
 
-        if (IsWindowsPlatform())
+        if (IsWindows)
         {
             if (!Native.VirtualProtect((nint)ptr, length, Native.PAGE_NOACCESS, out _))
             {
@@ -493,7 +513,7 @@ public static unsafe class NativeAllocator
             }
         }
 
-        if (IsWindowsPlatform())
+        if (IsWindows)
         {
             var prot = mode switch
             {

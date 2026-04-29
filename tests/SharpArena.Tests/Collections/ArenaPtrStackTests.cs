@@ -88,7 +88,24 @@ public unsafe class ArenaPtrStackTests
         using var arena = new ArenaAllocator(4096);
         var stack = new ArenaPtrStack<int>(arena);
 
-        Assert.Throws<InvalidOperationException>(() => stack.Pop());
+        var ex = Assert.Throws<InvalidOperationException>(() => stack.Pop());
+        Assert.Equal("ArenaPtrStack underflow", ex.Message);
+    }
+
+    [Fact]
+    public void Pop_Underflow_ShouldThrow()
+    {
+        using var arena = new ArenaAllocator(4096);
+        var stack = new ArenaPtrStack<int>(arena);
+
+        var a = (int*)arena.Alloc(sizeof(int));
+        *a = 10;
+        stack.Push(a);
+
+        Assert.Equal(10, *stack.Pop());
+
+        var ex = Assert.Throws<InvalidOperationException>(() => stack.Pop());
+        Assert.Equal("ArenaPtrStack underflow", ex.Message);
     }
 
     [Fact]
@@ -246,7 +263,8 @@ public unsafe class ArenaPtrStackTests
     {
         using var _arena = new ArenaAllocator(4096);
         var stack = new ArenaPtrStack<int>(_arena, 4);
-        Assert.Throws<InvalidOperationException>(() => stack.Pop());
+        var ex = Assert.Throws<InvalidOperationException>(() => stack.Pop());
+        Assert.Equal("ArenaPtrStack underflow", ex.Message);
     }
 
     [Fact]

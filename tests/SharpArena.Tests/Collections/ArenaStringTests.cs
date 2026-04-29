@@ -155,25 +155,36 @@ public unsafe class ArenaStringTests : IDisposable
     }
 
     [Fact]
-    public void AccessAfterReset_ThrowsObjectDisposedException()
+    public void Verify_AfterReset_ThrowsObjectDisposedException()
     {
         var str = ArenaString.Clone("Hello", _arena);
 
         _arena.Reset();
 
-        Action act = () => _ = str.Length;
+        Action act = () => str.Verify(_arena);
         act.Should().Throw<ObjectDisposedException>();
-        
-        act = () => _ = str.IsEmpty;
-        act.Should().Throw<ObjectDisposedException>();
-        
-        act = () => _ = str.ToString();
-        act.Should().Throw<ObjectDisposedException>();
-        
-        act = () => _ = str.AsSpan().Length;
-        act.Should().Throw<ObjectDisposedException>();
+    }
 
-        act = () => str.Slice(0, 1);
-        act.Should().Throw<ObjectDisposedException>();
+    [Fact]
+    public void IsAlive_ReflectsArenaState()
+    {
+        var str = ArenaString.Clone("Hello", _arena);
+
+        str.IsAlive(_arena).Should().BeTrue();
+
+        _arena.Reset();
+
+        str.IsAlive(_arena).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Equals_IEquatable_ReturnsTrueIfEqual()
+    {
+        var text = "Test String";
+        var str1 = ArenaString.Clone(text, _arena);
+        var str2 = ArenaString.Clone(text, _arena);
+
+        IEquatable<ArenaString> equatable = str1;
+        equatable.Equals(str2).Should().BeTrue();
     }
 }

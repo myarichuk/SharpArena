@@ -7,14 +7,14 @@ namespace SharpArena.Collections;
 
 /// <summary>
 /// A non-owning view of UTF-16 text stored in unmanaged (arena) memory.
+/// This struct is unmanaged and can be stored in arena-backed collections.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 [System.Diagnostics.DebuggerDisplay("{ToString()}")]
-public readonly unsafe struct ArenaString
+public readonly unsafe struct ArenaString : IEquatable<ArenaString>
 {
     private readonly char* _ptr;
     private readonly int _len;
-    private readonly ArenaAllocator _arena;
     private readonly int _generation;
 
     /// <summary>
@@ -24,68 +24,74 @@ public readonly unsafe struct ArenaString
     /// <returns>A span referencing the same characters.</returns>
     public static implicit operator ReadOnlySpan<char>(ArenaString value) => value.AsSpan();
 
+    private ArenaString(char* ptr, int len, int generation)
+    {
+        _ptr = ptr;
+        _len = len;
+        _generation = generation;
+    }
+
     internal ArenaString(ArenaAllocator arena, char* ptr, int len)
     {
-        _arena = arena;
         _generation = arena?.CurrentGeneration ?? 0;
         _ptr = ptr;
         _len = len;
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void CheckAliveThrowIfNot()
-    {
-        if (_ptr == null || _len == 0)
-        {
-            return;
-        }
+    /// <summary>
+    /// Gets the current generation this string was allocated in.
+    /// </summary>
+    public int Generation => _generation;
 
-        UnsafeHelpers.CheckAliveThrowIfNot(_arena, _generation, nameof(ArenaString));
+    /// <summary>
+    /// Gets a pointer to the raw character data.
+    /// </summary>
+    public char* RawPtr => _ptr;
+
+    /// <summary>
+    /// Checks if this string is still valid within the provided arena.
+    /// </summary>
+    /// <param name="arena">The arena to check against.</param>
+    /// <returns><see langword="true"/> if the arena generation matches the string's allocation generation.</returns>
+    public bool IsAlive(ArenaAllocator arena)
+    {
+        if (_ptr == null || _len == 0) return true;
+        return arena.CurrentGeneration == _generation;
+    }
+
+    /// <summary>
+    /// Throws an <see cref="ObjectDisposedException"/> if the string is no longer valid in the specified arena.
+    /// </summary>
+    /// <param name="arena">The arena that owns this string's memory.</param>
+    public void Verify(ArenaAllocator arena)
+    {
+        if (_ptr == null || _len == 0) return;
+        UnsafeHelpers.CheckAliveThrowIfNot(arena, _generation, nameof(ArenaString));
     }
 
     /// <summary>
     /// Gets the number of characters represented by the string.
     /// </summary>
-    public int Length
-    {
-        get
-        {
-            CheckAliveThrowIfNot();
-            return _len;
-        }
-    }
+    public int Length => _len;
 
     /// <summary>
     /// Gets a value indicating whether the string is empty or uninitialized.
     /// </summary>
-    public bool IsEmpty
-    {
-        get
-        {
-            CheckAliveThrowIfNot();
-            return _len == 0 || _ptr == null;
-        }
-    }
+    public bool IsEmpty => _len == 0 || _ptr == null;
 
     /// <summary>
     /// Materializes the arena-backed buffer as a managed span.
     /// </summary>
     /// <returns>The span covering the string contents.</returns>
-    public ReadOnlySpan<char> AsSpan()
-    {
-        CheckAliveThrowIfNot();
-        return _ptr == null ? ReadOnlySpan<char>.Empty : new ReadOnlySpan<char>(_ptr, _len);
-    }
+    public ReadOnlySpan<char> AsSpan() => 
+        _ptr == null ? ReadOnlySpan<char>.Empty : new ReadOnlySpan<char>(_ptr, _len);
 
     /// <summary>
     /// Returns the managed string representation of the arena-backed buffer.
     /// </summary>
     /// <returns>A managed string copy.</returns>
-    public override string ToString()
-    {
-        CheckAliveThrowIfNot();
-        return _ptr == null ? string.Empty : new string(_ptr, 0, _len);
-    }
+    public override string ToString() => 
+        _ptr == null ? string.Empty : new string(_ptr, 0, _len);
 
     /// <summary>
     /// Clones the provided span into arena-managed memory.
@@ -101,14 +107,16 @@ public readonly unsafe struct ArenaString
             return default;
         }
 
-        ulong bytes = (ulong)(uint)src.Length * (ulong)sizeof(char);
-        if (bytes != (ulong)(nuint)bytes)
+        var charCount = (uint)src.Length;
+        var byteCount = (nuint)charCount * (nuint)sizeof(char);
+        
+        var dest = (char*)arena.Alloc(byteCount, align: (nuint)UnsafeHelpers.AlignOf<char>());
+        
+        fixed (char* srcPtr = src)
         {
-            throw new OutOfMemoryException("Source span size exceeds addressable memory.");
+            Unsafe.CopyBlockUnaligned(dest, srcPtr, (uint)byteCount);
         }
 
-        var dest = (char*)arena.Alloc((nuint)bytes, align: (nuint)UnsafeHelpers.AlignOf<char>());
-        src.CopyTo(new Span<char>(dest, src.Length));
         return new ArenaString(arena, dest, src.Length);
     }
 
@@ -118,8 +126,13 @@ public readonly unsafe struct ArenaString
     /// <param name="other">The span to compare.</param>
     /// <returns><see langword="true"/> when the spans are equal; otherwise, <see langword="false"/>.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool Equals(ReadOnlySpan<char> other) =>
-        _len == other.Length && AsSpan().SequenceEqual(other);
+    public bool Equals(ReadOnlySpan<char> other)
+    {
+        if (_len != other.Length) return false;
+        if (_ptr == null) return other.IsEmpty;
+
+        return MemoryMarshal.AsBytes(AsSpan()).SequenceEqual(MemoryMarshal.AsBytes(other));
+    }
 
     /// <summary>
     /// Determines whether the current string equals another arena-backed string.
@@ -127,8 +140,11 @@ public readonly unsafe struct ArenaString
     /// <param name="other">The other string to compare.</param>
     /// <returns><see langword="true"/> when the strings are equal; otherwise, <see langword="false"/>.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool Equals(ArenaString other) =>
-        Equals(other.AsSpan());
+    public bool Equals(ArenaString other)
+    {
+        if (_ptr == other._ptr && _len == other._len) return true;
+        return Equals(other.AsSpan());
+    }
 
     /// <inheritdoc />
     public override bool Equals(object? obj) =>
@@ -137,17 +153,30 @@ public readonly unsafe struct ArenaString
     /// <inheritdoc />
     public override int GetHashCode()
     {
-        var hash = new HashCode();
-        hash.Add(_len);
-#if NETCOREAPP3_0_OR_GREATER || NET
-        hash.AddBytes(MemoryMarshal.AsBytes(AsSpan()));
-#else
-        foreach (var ch in AsSpan())
+        if (_ptr == null || _len == 0) return 0;
+        return (int)System.IO.Hashing.XxHash3.HashToUInt64(MemoryMarshal.AsBytes(AsSpan()));
+    }
+
+    /// <summary>
+    /// Encodes the string as UTF-8 into the provided arena.
+    /// </summary>
+    /// <param name="arena">The allocator for the UTF-8 buffer.</param>
+    /// <returns>An <see cref="ArenaUtf8String"/> referencing the UTF-8 encoded characters.</returns>
+    public ArenaUtf8String ToUtf8(ArenaAllocator arena)
+    {
+        if (IsEmpty) return default;
+
+        var span = AsSpan();
+        var maxByteCount = (uint)System.Text.Encoding.UTF8.GetMaxByteCount(span.Length);
+        var dest = (byte*)arena.Alloc(maxByteCount, align: 1);
+
+        int bytesWritten;
+        fixed (char* srcPtr = span)
         {
-            hash.Add(ch);
+            bytesWritten = System.Text.Encoding.UTF8.GetBytes(srcPtr, span.Length, dest, (int)maxByteCount);
         }
-#endif
-        return hash.ToHashCode();
+
+        return new ArenaUtf8String(arena, dest, bytesWritten);
     }
 
     /// <summary>
@@ -161,7 +190,6 @@ public readonly unsafe struct ArenaString
     /// </exception>
     public ArenaString Slice(int start, int length)
     {
-        CheckAliveThrowIfNot();
         if (start < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(start), "Start index must be non-negative.");
@@ -177,7 +205,7 @@ public readonly unsafe struct ArenaString
             throw new ArgumentOutOfRangeException(nameof(length), "Slice range must be within the string bounds.");
         }
 
-        return new ArenaString(_arena, _ptr + start, length);
+        return new ArenaString(_ptr + start, length, _generation);
     }
 
     /// <summary>
@@ -203,9 +231,9 @@ public readonly unsafe struct ArenaString
     /// </summary>
     /// <param name="left">The first string.</param>
     /// <param name="right">The second string.</param>
+    /// <param name="arena">The allocator for the new string.</param>
     /// <returns>A new <see cref="ArenaString"/> containing the concatenated characters.</returns>
-    /// <exception cref="ArgumentException">Thrown when the strings belong to different arenas.</exception>
-    public static ArenaString operator +(ArenaString left, ArenaString right)
+    public static ArenaString Concatenate(ArenaString left, ArenaString right, ArenaAllocator arena)
     {
         if (left.IsEmpty && right.IsEmpty)
         {
@@ -222,34 +250,18 @@ public readonly unsafe struct ArenaString
             return left;
         }
 
-        if (left._arena != right._arena)
-        {
-            throw new ArgumentException("Cannot concatenate ArenaStrings from different arenas.");
-        }
-
-        left.CheckAliveThrowIfNot();
-        right.CheckAliveThrowIfNot();
-
         if ((long)(uint)left._len + (long)(uint)right._len > int.MaxValue)
         {
             throw new ArgumentOutOfRangeException(nameof(left), "Concatenated string length exceeds maximum length.");
         }
 
-        int newLen = left._len + right._len;
-        ulong bytes = (ulong)(uint)newLen * (ulong)sizeof(char);
-        if (bytes != (ulong)(nuint)bytes)
-        {
-            throw new OutOfMemoryException("Concatenated string size exceeds addressable memory.");
-        }
+        var newLen = left._len + right._len;
+        var byteCount = (nuint)newLen * (nuint)sizeof(char);
 
-        var arena = left._arena;
-        var dest = (char*)arena.Alloc((nuint)bytes, align: (nuint)UnsafeHelpers.AlignOf<char>());
+        var dest = (char*)arena.Alloc(byteCount, align: (nuint)UnsafeHelpers.AlignOf<char>());
 
-        var leftSpan = left.AsSpan();
-        var rightSpan = right.AsSpan();
-
-        leftSpan.CopyTo(new Span<char>(dest, leftSpan.Length));
-        rightSpan.CopyTo(new Span<char>(dest + leftSpan.Length, rightSpan.Length));
+        Unsafe.CopyBlockUnaligned(dest, left._ptr, (uint)(left._len * sizeof(char)));
+        Unsafe.CopyBlockUnaligned(dest + left._len, right._ptr, (uint)(right._len * sizeof(char)));
 
         return new ArenaString(arena, dest, newLen);
     }

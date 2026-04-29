@@ -37,7 +37,14 @@ public unsafe class ArenaAllocator : IDisposable
     /// <summary>
     /// Gets the peak number of bytes allocated from the arena over its lifetime.
     /// </summary>
-    public nuint PeakBytes => _peakBytes > AllocatedBytes ? _peakBytes : AllocatedBytes;
+    public nuint PeakBytes
+    {
+        get
+        {
+            nuint currentAllocated = AllocatedBytes;
+            return _peakBytes > currentAllocated ? _peakBytes : currentAllocated;
+        }
+    }
     
     /// <summary>
     /// Initializes a new instance of the <see cref="ArenaAllocator"/> class.
