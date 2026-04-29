@@ -1,3 +1,4 @@
+using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -83,8 +84,7 @@ public static unsafe class NativeAllocator
 #endif
     }
 
-    private static bool IsWindowsPlatform()
-        => RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+    private static readonly bool IsWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
 
     // ConcurrentDictionary ensures async/thread safety
 #if DEBUG
@@ -194,7 +194,7 @@ public static unsafe class NativeAllocator
 #else
             NativeAllocatorBackend.DotNetUnmanaged => (void*)Marshal.AllocHGlobal(checked((nint)total)),
 #endif
-            _ when IsWindowsPlatform()
+            _ when IsWindows
                 => (void*)Native.VirtualAlloc(0, alignedTotal, Native.MEM_RESERVE | Native.MEM_COMMIT, Native.PAGE_READWRITE),
             _ => (void*)Native.mmap(IntPtr.Zero, alignedTotal, Native.PROT_READ | Native.PROT_WRITE,
                                     Native.MAP_PRIVATE | Native.MAP_ANONYMOUS, -1, 0),
@@ -324,7 +324,7 @@ public static unsafe class NativeAllocator
                 return;
 
             case NativeAllocatorBackend.PlatformInvoke:
-                if (IsWindowsPlatform())
+                if (IsWindows)
                 {
                     if (!Native.VirtualFree(rawPtr, 0, Native.MEM_RELEASE))
                     {
@@ -343,7 +343,7 @@ public static unsafe class NativeAllocator
     }
 
     private static bool IsMmapFailure(void* ptr)
-        => !IsWindowsPlatform() && (nint)ptr == -1;
+        => !IsWindows && (nint)ptr == -1;
 
     private static void AlignToPage(void* ptr, nuint length, out void* alignedPtr, out nuint alignedLength)
     {
@@ -385,7 +385,7 @@ public static unsafe class NativeAllocator
 #if !DEBUG
     private static bool IsPointerFreed(void* userPtr)
     {
-        if (IsWindowsPlatform())
+        if (IsWindows)
         {
             var querySize = (nuint)Unsafe.SizeOf<Native.MEMORY_BASIC_INFORMATION>();
             if (Native.VirtualQuery((nint)userPtr, out var info, querySize) == 0)
@@ -443,7 +443,7 @@ public static unsafe class NativeAllocator
             return;
         }
 
-        if (IsWindowsPlatform())
+        if (IsWindows)
         {
             if (!Native.VirtualProtect((nint)ptr, length, Native.PAGE_NOACCESS, out _))
             {
@@ -513,7 +513,7 @@ public static unsafe class NativeAllocator
             }
         }
 
-        if (IsWindowsPlatform())
+        if (IsWindows)
         {
             var prot = mode switch
             {
