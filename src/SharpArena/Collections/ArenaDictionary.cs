@@ -1,7 +1,4 @@
-using System;
 using System.Collections;
-using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using SharpArena.Allocators;
@@ -63,7 +60,7 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
         int bitsetWords = (capacity + 63) / 64;
         nuint keysSize = (nuint)capacity * (nuint)sizeof(TKey);
         nuint valuesSize = (nuint)capacity * (nuint)sizeof(TValue);
-        nuint bitsetSize = (nuint)bitsetWords * (nuint)sizeof(ulong);
+        nuint bitsetSize = (nuint)bitsetWords * sizeof(ulong);
 
         // Align bitset and values properly
         nuint keyAlign = (nuint)UnsafeHelpers.AlignOf<TKey>();
@@ -82,10 +79,8 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal void CheckAlive()
-    {
-        UnsafeHelpers.CheckAliveThrowIfNot(_arena, _generation, nameof(ArenaDictionary<TKey, TValue>));
-    }
+    private readonly void CheckAlive() => 
+        UnsafeHelpers.CheckAliveThrowIfNot(_arena, _generation, nameof(ArenaDictionary<,>));
 
     private int GetSlot(TKey key, int capacity, ulong* bitset, TKey* keys)
     {
@@ -110,18 +105,14 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool IsSlotOccupied(ulong* bitset, int index)
-    {
-        return (bitset[index >> 6] & (1UL << (index & 63))) != 0;
-    }
+    private static bool IsSlotOccupied(ulong* bitset, int index) => 
+        (bitset[index >> 6] & (1UL << (index & 63))) != 0;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void SetSlotOccupied(ulong* bitset, int index)
-    {
-        bitset[index >> 6] |= (1UL << (index & 63));
-    }
+    private static void SetSlotOccupied(ulong* bitset, int index) => 
+        bitset[index >> 6] |= 1UL << (index & 63);
 
-    /// <inheritdoc />
+    /// <inheritdoc cref="IDictionary" />
     public int Count
     {
         get
@@ -134,18 +125,12 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     /// <inheritdoc />
     public bool IsReadOnly => false;
 
-    /// <inheritdoc />
+    /// <inheritdoc cref="IDictionary{TKey, TValue}" />
     public TValue this[TKey key]
     {
-        get
-        {
-            if (TryGetValue(key, out var value)) return value;
-            throw new KeyNotFoundException();
-        }
-        set
-        {
-            AddOrUpdate(key, value);
-        }
+        get => TryGetValue(key, out var value) ? 
+            value : throw new KeyNotFoundException();
+        set => AddOrUpdate(key, value);
     }
 
     /// <inheritdoc />
@@ -238,7 +223,7 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
         _header->Count++;
     }
 
-    /// <inheritdoc />
+    /// <inheritdoc cref="IDictionary{TKey,TValue}" />
     public bool ContainsKey(TKey key)
     {
         CheckAlive();
@@ -246,11 +231,11 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
         return IsSlotOccupied(_header->Bitset, slot);
     }
 
-    /// <inheritdoc />
+    /// <inheritdoc cref="IDictionary{TKey,TValue}" />
     public bool Remove(TKey key) => throw new NotSupportedException("ArenaDictionary does not support removal.");
 
-    /// <inheritdoc />
-    public bool TryGetValue(TKey key, [MaybeNullWhen(false)] out TValue value)
+    /// <inheritdoc cref="IDictionary{TKey,TValue}" />
+    public bool TryGetValue(TKey key, out TValue value)
     {
         CheckAlive();
         int slot = GetSlot(key, _header->Capacity, _header->Bitset, (TKey*)_header->Keys);
@@ -320,6 +305,7 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
             _current = default;
         }
 
+        /// <inheritdoc />
         public bool MoveNext()
         {
             _dict.CheckAlive();
@@ -342,16 +328,20 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
             return false;
         }
 
+        /// <inheritdoc />
         public KeyValuePair<TKey, TValue> Current => _current;
         object IEnumerator.Current => _current;
+
+        /// <inheritdoc />
         public void Dispose() { }
+
+        /// <inheritdoc />
         public void Reset() => _index = -1;
     }
 
-    private class KeyCollection : ICollection<TKey>
+    private readonly struct KeyCollection(ArenaDictionary<TKey, TValue> dict) : ICollection<TKey>
     {
-        private readonly ArenaDictionary<TKey, TValue> _dict;
-        public KeyCollection(ArenaDictionary<TKey, TValue> dict) => _dict = dict;
+        private readonly ArenaDictionary<TKey, TValue> _dict = dict;
         public int Count => _dict.Count;
         public bool IsReadOnly => true;
         public void Add(TKey item) => throw new NotSupportedException();
