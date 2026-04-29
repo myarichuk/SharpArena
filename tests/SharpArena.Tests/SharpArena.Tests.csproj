@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\SharpArena\SharpArena.csproj" />
+    <ProjectReference Include="..\..\samples\SimpleMathParser\SimpleMathParser.csproj" />
   </ItemGroup>
 
 </Project>

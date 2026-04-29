@@ -145,7 +145,11 @@ public class ArenaMathParser
         {
             if (t.Type == TokenType.Number)
             {
-                evalStack[top++] = double.Parse(t.GetValueSpan());
+                if (!double.TryParse(t.GetValueSpan(), out double val))
+                {
+                    throw new SyntaxErrorException($"Invalid number format: {t.GetValueSpan().ToString()}");
+                }
+                evalStack[top++] = val;
             }
             else
             {
