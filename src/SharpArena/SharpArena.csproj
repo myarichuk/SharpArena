@@ -23,6 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="System.IO.Hashing" Version="8.0.0" />
     <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
