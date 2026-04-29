@@ -56,7 +56,7 @@ public readonly unsafe struct ArenaString : IEquatable<ArenaString>
     public bool IsAlive(ArenaAllocator arena)
     {
         if (_ptr == null || _len == 0) return true;
-        return arena != null && arena.CurrentGeneration == _generation;
+        return arena.CurrentGeneration == _generation;
     }
 
     /// <summary>
@@ -83,19 +83,15 @@ public readonly unsafe struct ArenaString : IEquatable<ArenaString>
     /// Materializes the arena-backed buffer as a managed span.
     /// </summary>
     /// <returns>The span covering the string contents.</returns>
-    public ReadOnlySpan<char> AsSpan()
-    {
-        return _ptr == null ? ReadOnlySpan<char>.Empty : new ReadOnlySpan<char>(_ptr, _len);
-    }
+    public ReadOnlySpan<char> AsSpan() => 
+        _ptr == null ? ReadOnlySpan<char>.Empty : new ReadOnlySpan<char>(_ptr, _len);
 
     /// <summary>
     /// Returns the managed string representation of the arena-backed buffer.
     /// </summary>
     /// <returns>A managed string copy.</returns>
-    public override string ToString()
-    {
-        return _ptr == null ? string.Empty : new string(_ptr, 0, _len);
-    }
+    public override string ToString() => 
+        _ptr == null ? string.Empty : new string(_ptr, 0, _len);
 
     /// <summary>
     /// Clones the provided span into arena-managed memory.
@@ -111,8 +107,8 @@ public readonly unsafe struct ArenaString : IEquatable<ArenaString>
             return default;
         }
 
-        uint charCount = (uint)src.Length;
-        nuint byteCount = (nuint)charCount * (nuint)sizeof(char);
+        var charCount = (uint)src.Length;
+        var byteCount = (nuint)charCount * (nuint)sizeof(char);
         
         var dest = (char*)arena.Alloc(byteCount, align: (nuint)UnsafeHelpers.AlignOf<char>());
         
@@ -246,8 +242,8 @@ public readonly unsafe struct ArenaString : IEquatable<ArenaString>
             throw new ArgumentOutOfRangeException(nameof(left), "Concatenated string length exceeds maximum length.");
         }
 
-        int newLen = left._len + right._len;
-        nuint byteCount = (nuint)newLen * (nuint)sizeof(char);
+        var newLen = left._len + right._len;
+        var byteCount = (nuint)newLen * (nuint)sizeof(char);
 
         var dest = (char*)arena.Alloc(byteCount, align: (nuint)UnsafeHelpers.AlignOf<char>());
 
