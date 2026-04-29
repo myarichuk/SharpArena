@@ -44,7 +44,7 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         _arena = arena ?? throw new ArgumentNullException(nameof(arena));
         _generation = arena.CurrentGeneration;
 
-        int capacity = 1;
+        var capacity = 1;
         while (capacity < initialCapacity) capacity <<= 1;
 
         _header = (ArenaSetHeader*)arena.Alloc((nuint)sizeof(ArenaSetHeader), align: (nuint)IntPtr.Size);
@@ -56,32 +56,30 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
 
     private void AllocateTable(int capacity)
     {
-        // Entries + Bitset (1 bit per entry, aligned to 8 bytes)
-        int bitsetWords = (capacity + 63) / 64;
-        nuint entriesSize = (nuint)capacity * (nuint)sizeof(T);
-        nuint bitsetSize = (nuint)bitsetWords * (nuint)sizeof(ulong);
+        var bitsetWords = (capacity + 63) / 64;
+        var entriesSize = (nuint)capacity * (nuint)sizeof(T);
+        var bitsetSize = (nuint)bitsetWords * sizeof(ulong);
+        var totalSize = entriesSize + bitsetSize;
 
-        // Allocate together to minimize arena segments/fragmentation
-        void* block = _arena.Alloc(entriesSize + bitsetSize, align: (nuint)UnsafeHelpers.AlignOf<T>());
-        
+       // Bitset should always be 8-byte aligned
+        var align = (nuint)Math.Max(UnsafeHelpers.AlignOf<T>(), 8);
+
+        var block = _arena.Alloc(totalSize, align: align);
         _header->Entries = block;
         _header->Bitset = (ulong*)((byte*)block + entriesSize);
-
-        // Zero the bitset
+        
         new Span<ulong>(_header->Bitset, bitsetWords).Clear();
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal void CheckAlive()
-    {
-        UnsafeHelpers.CheckAliveThrowIfNot(_arena, _generation, nameof(ArenaSet<T>));
-    }
+    private readonly void CheckAlive() => 
+        UnsafeHelpers.CheckAliveThrowIfNot(_arena, _generation, nameof(ArenaSet<>));
 
     private int GetSlot(T item, int capacity, ulong* bitset, T* entries)
     {
-        uint hash = (uint)item.GetHashCode();
-        uint mask = (uint)capacity - 1;
-        uint index = hash & mask;
+        var hash = (uint)item.GetHashCode();
+        var mask = (uint)capacity - 1;
+        var index = hash & mask;
 
         while (true)
         {
@@ -111,7 +109,7 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         bitset[index >> 6] |= (1UL << (index & 63));
     }
 
-    /// <inheritdoc />
+    /// <inheritdoc cref="ISet{T}" />
     public int Count
     {
         get
@@ -134,7 +132,7 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
             Grow();
         }
 
-        int slot = GetSlot(item, _header->Capacity, _header->Bitset, (T*)_header->Entries);
+        var slot = GetSlot(item, _header->Capacity, _header->Bitset, (T*)_header->Entries);
         if (IsSlotOccupied(_header->Bitset, slot))
         {
             return false;
@@ -148,16 +146,16 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
 
     private void Grow()
     {
-        int oldCap = _header->Capacity;
-        int newCap = oldCap * 2;
-        void* oldEntries = _header->Entries;
-        ulong* oldBitset = _header->Bitset;
+        var oldCap = _header->Capacity;
+        var newCap = oldCap * 2;
+        var oldEntries = _header->Entries;
+        var oldBitset = _header->Bitset;
 
         AllocateTable(newCap);
         _header->Capacity = newCap;
         _header->Count = 0; // Will be incremented during re-add
 
-        for (int i = 0; i < oldCap; i++)
+        for (var i = 0; i < oldCap; i++)
         {
             if ((oldBitset[i >> 6] & (1UL << (i & 63))) != 0)
             {
@@ -169,7 +167,7 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     // Faster add for rehashing (skips growth check and alive check)
     private void AddInternal(T item)
     {
-        int slot = GetSlot(item, _header->Capacity, _header->Bitset, (T*)_header->Entries);
+        var slot = GetSlot(item, _header->Capacity, _header->Bitset, (T*)_header->Entries);
         SetSlotOccupied(_header->Bitset, slot);
         ((T*)_header->Entries)[slot] = item;
         _header->Count++;
@@ -179,7 +177,7 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     public void Clear()
     {
         CheckAlive();
-        int bitsetWords = (_header->Capacity + 63) / 64;
+        var bitsetWords = (_header->Capacity + 63) / 64;
         new Span<ulong>(_header->Bitset, bitsetWords).Clear();
         _header->Count = 0;
     }
@@ -188,7 +186,7 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     public bool Contains(T item)
     {
         CheckAlive();
-        int slot = GetSlot(item, _header->Capacity, _header->Bitset, (T*)_header->Entries);
+        var slot = GetSlot(item, _header->Capacity, _header->Bitset, (T*)_header->Entries);
         return IsSlotOccupied(_header->Bitset, slot);
     }
 
@@ -200,12 +198,12 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         if (array.Length - arrayIndex < Count) throw new ArgumentException("Destination array is too small.");
 
         CheckAlive();
-        int cap = _header->Capacity;
-        ulong* bitset = _header->Bitset;
-        T* entries = (T*)_header->Entries;
+        var cap = _header->Capacity;
+        var bitset = _header->Bitset;
+        var entries = (T*)_header->Entries;
 
-        int j = arrayIndex;
-        for (int i = 0; i < cap; i++)
+        var j = arrayIndex;
+        for (var i = 0; i < cap; i++)
         {
             if (IsSlotOccupied(bitset, i))
             {
@@ -248,9 +246,9 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
             var header = _set._header;
             if (header == null) return false;
 
-            int cap = header->Capacity;
-            ulong* bitset = header->Bitset;
-            T* entries = (T*)header->Entries;
+            var cap = header->Capacity;
+            var bitset = header->Bitset;
+            var entries = (T*)header->Entries;
 
             while (++_index < cap)
             {
@@ -299,7 +297,7 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
             return false;
         }
 
-        int matchCount = 0;
+        var matchCount = 0;
         var otherSet = new HashSet<T>(other); 
         
         foreach (var item in this)
@@ -317,7 +315,7 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         if (other == null) throw new ArgumentNullException(nameof(other));
         CheckAlive();
         
-        int otherCount = 0;
+        var otherCount = 0;
         foreach (var item in other)
         {
             if (!Contains(item)) return false;
@@ -371,7 +369,7 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         if (other == null) throw new ArgumentNullException(nameof(other));
         CheckAlive();
         
-        int otherCount = 0;
+        var otherCount = 0;
         foreach (var item in other)
         {
             if (!Contains(item)) return false;
