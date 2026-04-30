@@ -18,8 +18,7 @@ internal static unsafe class Hashing
             return (uint)Unsafe.As<T, ArenaUtf8String>(ref value).GetHashCode();
         }
 
-        var span = new ReadOnlySpan<byte>(&value, sizeof(T));
-        return (uint)XxHash3.HashToUInt64(span);
+        return (uint)EqualityComparer<T>.Default.GetHashCode(value);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

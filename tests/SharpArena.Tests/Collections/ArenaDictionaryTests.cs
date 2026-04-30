@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using FluentAssertions;
 using SharpArena.Allocators;
 using SharpArena.Collections;
@@ -5,11 +6,30 @@ using Xunit;
 
 namespace SharpArena.Tests.Collections;
 
+[StructLayout(LayoutKind.Sequential)]
+public struct PaddedKey : IEquatable<PaddedKey>
+{
+    public byte A;
+    public int B; // padding exists between A and B
+    public bool Equals(PaddedKey other) => A == other.A && B == other.B;
+    public override int GetHashCode() => HashCode.Combine(A, B);
+}
+
 public class ArenaDictionaryTests : IDisposable
 {
     private readonly ArenaAllocator _arena = new();
 
     public void Dispose() => _arena.Dispose();
+
+    [Fact]
+    public void PaddedStructHashing_IgnoresPadding()
+    {
+        var dict = new ArenaDictionary<PaddedKey, int>(_arena);
+
+        var key1 = new PaddedKey { A = 1, B = 2 };
+        dict.Add(key1, 42);
+        dict.ContainsKey(key1).Should().BeTrue();
+    }
 
     [Fact]
     public void Add_NewEntry_IncrementsCountAndEnablesLookup()
