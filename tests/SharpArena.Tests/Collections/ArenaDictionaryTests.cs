@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Text;
 using FluentAssertions;
 using SharpArena.Allocators;
 using SharpArena.Collections;
@@ -202,6 +203,57 @@ public class ArenaDictionaryTests : IDisposable
         ReadOnlySpan<byte> query = "world"u8;
         dict.TryGetValue(query, out var val).Should().BeTrue();
         val.Should().Be(77);
+    }
+
+    [Fact]
+    public void TryGetValue_LargeByteSpan_OnUtf16Dict_Works()
+    {
+        var dict = new ArenaDictionary<ArenaUtf16String, int>(_arena);
+        string largeKey = new string('b', 600);
+        dict.Add(ArenaUtf16String.Clone(largeKey, _arena), 5678);
+
+        ReadOnlySpan<byte> query = Encoding.UTF8.GetBytes(largeKey);
+        dict.TryGetValue(query, out var val).Should().BeTrue();
+        val.Should().Be(5678);
+    }
+
+    [Fact]
+    public void ContainsKey_LargeByteSpan_OnUtf16Dict_Works()
+    {
+        var dict = new ArenaDictionary<ArenaUtf16String, int>(_arena);
+        string largeKey = new string('c', 600);
+        dict.Add(ArenaUtf16String.Clone(largeKey, _arena), 999);
+
+        ReadOnlySpan<byte> query = Encoding.UTF8.GetBytes(largeKey);
+        dict.ContainsKey(query).Should().BeTrue();
+    }
+
+    [Fact]
+    public void StressTest_CrossEncoding_LargeStrings()
+    {
+        var dictUtf8 = new ArenaDictionary<ArenaUtf8String, int>(_arena);
+        var dictUtf16 = new ArenaDictionary<ArenaUtf16String, int>(_arena);
+        
+        for (int i = 0; i < 100; i++)
+        {
+            string key = new string((char)('a' + (i % 26)), 513 + i);
+            dictUtf8.Add(ArenaUtf8String.Clone(key, _arena), i);
+            dictUtf16.Add(ArenaUtf16String.Clone(key, _arena), i);
+        }
+
+        for (int i = 0; i < 100; i++)
+        {
+            string key = new string((char)('a' + (i % 26)), 513 + i);
+            
+            // Char -> Utf8
+            dictUtf8.TryGetValue(key.AsSpan(), out var val1).Should().BeTrue();
+            val1.Should().Be(i);
+            
+            // Byte -> Utf16
+            ReadOnlySpan<byte> keyBytes = Encoding.UTF8.GetBytes(key);
+            dictUtf16.TryGetValue(keyBytes, out var val2).Should().BeTrue();
+            val2.Should().Be(i);
+        }
     }
 
     [Fact]
