@@ -268,6 +268,33 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     }
 
     /// <summary>
+    /// Specialized ContainsKey for ArenaUtf8String using ReadOnlySpan{byte} to avoid allocations.
+    /// </summary>
+    /// <param name="key">The key to locate in the <see cref="ArenaDictionary{TKey, TValue}"/>.</param>
+    /// <returns><see langword="true"/> if the <see cref="ArenaDictionary{TKey, TValue}"/> contains an element with the key; otherwise, <see langword="false"/>.</returns>
+    public bool ContainsKey(ReadOnlySpan<byte> key)
+    {
+        if (typeof(TKey) == typeof(ArenaUtf8String))
+        {
+            CheckAlive();
+            uint capacity = (uint)_header->Capacity;
+            int* buckets = _header->Buckets;
+            ArenaUtf8String* keys = (ArenaUtf8String*)_header->Keys;
+            uint mask = capacity - 1;
+            uint hash = Hashing.HashUtf8(key);
+            uint index = hash & mask;
+            while (true)
+            {
+                int entryIdxPlusOne = buckets[index];
+                if (entryIdxPlusOne == 0) return false;
+                if (keys[entryIdxPlusOne - 1].Equals(key)) return true;
+                index = (index + 1) & mask;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Gets the value associated with the specified key.
     /// </summary>
     /// <param name="key">The key whose value to get.</param>
@@ -322,6 +349,40 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
             index = (index + 1) & mask;
         }
 
+        value = default;
+        return false;
+    }
+
+    /// <summary>
+    /// Specialized TryGetValue for ArenaUtf8String using ReadOnlySpan{byte} to avoid allocations.
+    /// </summary>
+    /// <param name="key">The key whose value to get.</param>
+    /// <param name="value">When this method returns, the value associated with the specified key, if the key is found; otherwise, the default value for the type of the <paramref name="value"/> parameter. This parameter is passed uninitialized.</param>
+    /// <returns><see langword="true"/> if the <see cref="ArenaDictionary{TKey, TValue}"/> contains an element with the specified key; otherwise, <see langword="false"/>.</returns>
+    public bool TryGetValue(ReadOnlySpan<byte> key, out TValue value)
+    {
+        if (typeof(TKey) == typeof(ArenaUtf8String))
+        {
+            CheckAlive();
+            uint capacity = (uint)_header->Capacity;
+            int* buckets = _header->Buckets;
+            ArenaUtf8String* keys = (ArenaUtf8String*)_header->Keys;
+            TValue* values = (TValue*)_header->Values;
+            uint mask = capacity - 1;
+            uint hash = Hashing.HashUtf8(key);
+            uint index = hash & mask;
+            while (true)
+            {
+                int entryIdxPlusOne = buckets[index];
+                if (entryIdxPlusOne == 0) break;
+                if (keys[entryIdxPlusOne - 1].Equals(key))
+                {
+                    value = values[entryIdxPlusOne - 1];
+                    return true;
+                }
+                index = (index + 1) & mask;
+            }
+        }
         value = default;
         return false;
     }
