@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+using System.Text;
 using FluentAssertions;
 using SharpArena.Allocators;
 using SharpArena.Collections;
@@ -5,11 +7,30 @@ using Xunit;
 
 namespace SharpArena.Tests.Collections;
 
+[StructLayout(LayoutKind.Sequential)]
+public struct PaddedKey : IEquatable<PaddedKey>
+{
+    public byte A;
+    public int B; // padding exists between A and B
+    public bool Equals(PaddedKey other) => A == other.A && B == other.B;
+    public override int GetHashCode() => HashCode.Combine(A, B);
+}
+
 public class ArenaDictionaryTests : IDisposable
 {
     private readonly ArenaAllocator _arena = new();
 
     public void Dispose() => _arena.Dispose();
+
+    [Fact]
+    public void PaddedStructHashing_IgnoresPadding()
+    {
+        var dict = new ArenaDictionary<PaddedKey, int>(_arena);
+
+        var key1 = new PaddedKey { A = 1, B = 2 };
+        dict.Add(key1, 42);
+        dict.ContainsKey(key1).Should().BeTrue();
+    }
 
     [Fact]
     public void Add_NewEntry_IncrementsCountAndEnablesLookup()
@@ -108,6 +129,131 @@ public class ArenaDictionaryTests : IDisposable
         dict[ArenaUtf16String.Clone("key1", _arena)].Should().Be(1); // Content equality check
         dict.ContainsKey(ArenaUtf16String.Clone("key2", _arena)).Should().BeTrue();
         dict.ContainsKey(ArenaUtf16String.Clone("key3", _arena)).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ContainsKey_Utf8ByteSpan_Works()
+    {
+        var dict = new ArenaDictionary<ArenaUtf8String, int>(_arena);
+        var key = ArenaUtf8String.Clone("test", _arena);
+        dict.Add(key, 123);
+
+        ReadOnlySpan<byte> query = "test"u8;
+        dict.ContainsKey(query).Should().BeTrue();
+    }
+
+    [Fact]
+    public void TryGetValue_Utf8ByteSpan_Works()
+    {
+        var dict = new ArenaDictionary<ArenaUtf8String, int>(_arena);
+        var key = ArenaUtf8String.Clone("test", _arena);
+        dict.Add(key, 123);
+
+        ReadOnlySpan<byte> query = "test"u8;
+        dict.TryGetValue(query, out var val).Should().BeTrue();
+        val.Should().Be(123);
+    }
+
+    [Fact]
+    public void ContainsKey_CharSpan_OnUtf8Dict_Works()
+    {
+        var dict = new ArenaDictionary<ArenaUtf8String, int>(_arena);
+        dict.Add(ArenaUtf8String.Clone("hello", _arena), 99);
+
+        dict.ContainsKey("hello".AsSpan()).Should().BeTrue();
+    }
+
+    [Fact]
+    public void TryGetValue_CharSpan_OnUtf8Dict_Works()
+    {
+        var dict = new ArenaDictionary<ArenaUtf8String, int>(_arena);
+        dict.Add(ArenaUtf8String.Clone("hello", _arena), 99);
+
+        dict.TryGetValue("hello".AsSpan(), out var val).Should().BeTrue();
+        val.Should().Be(99);
+    }
+
+    [Fact]
+    public void TryGetValue_LargeCharSpan_OnUtf8Dict_Works()
+    {
+        var dict = new ArenaDictionary<ArenaUtf8String, int>(_arena);
+        string largeKey = new string('a', 600);
+        dict.Add(ArenaUtf8String.Clone(largeKey, _arena), 1234);
+
+        dict.TryGetValue(largeKey.AsSpan(), out var val).Should().BeTrue();
+        val.Should().Be(1234);
+    }
+
+    [Fact]
+    public void ContainsKey_ByteSpan_OnUtf16Dict_Works()
+    {
+        var dict = new ArenaDictionary<ArenaUtf16String, int>(_arena);
+        dict.Add(ArenaUtf16String.Clone("world", _arena), 77);
+
+        ReadOnlySpan<byte> query = "world"u8;
+        dict.ContainsKey(query).Should().BeTrue();
+    }
+
+    [Fact]
+    public void TryGetValue_ByteSpan_OnUtf16Dict_Works()
+    {
+        var dict = new ArenaDictionary<ArenaUtf16String, int>(_arena);
+        dict.Add(ArenaUtf16String.Clone("world", _arena), 77);
+
+        ReadOnlySpan<byte> query = "world"u8;
+        dict.TryGetValue(query, out var val).Should().BeTrue();
+        val.Should().Be(77);
+    }
+
+    [Fact]
+    public void TryGetValue_LargeByteSpan_OnUtf16Dict_Works()
+    {
+        var dict = new ArenaDictionary<ArenaUtf16String, int>(_arena);
+        string largeKey = new string('b', 600);
+        dict.Add(ArenaUtf16String.Clone(largeKey, _arena), 5678);
+
+        ReadOnlySpan<byte> query = Encoding.UTF8.GetBytes(largeKey);
+        dict.TryGetValue(query, out var val).Should().BeTrue();
+        val.Should().Be(5678);
+    }
+
+    [Fact]
+    public void ContainsKey_LargeByteSpan_OnUtf16Dict_Works()
+    {
+        var dict = new ArenaDictionary<ArenaUtf16String, int>(_arena);
+        string largeKey = new string('c', 600);
+        dict.Add(ArenaUtf16String.Clone(largeKey, _arena), 999);
+
+        ReadOnlySpan<byte> query = Encoding.UTF8.GetBytes(largeKey);
+        dict.ContainsKey(query).Should().BeTrue();
+    }
+
+    [Fact]
+    public void StressTest_CrossEncoding_LargeStrings()
+    {
+        var dictUtf8 = new ArenaDictionary<ArenaUtf8String, int>(_arena);
+        var dictUtf16 = new ArenaDictionary<ArenaUtf16String, int>(_arena);
+        
+        for (int i = 0; i < 100; i++)
+        {
+            string key = new string((char)('a' + (i % 26)), 513 + i);
+            dictUtf8.Add(ArenaUtf8String.Clone(key, _arena), i);
+            dictUtf16.Add(ArenaUtf16String.Clone(key, _arena), i);
+        }
+
+        for (int i = 0; i < 100; i++)
+        {
+            string key = new string((char)('a' + (i % 26)), 513 + i);
+            
+            // Char -> Utf8
+            dictUtf8.TryGetValue(key.AsSpan(), out var val1).Should().BeTrue();
+            val1.Should().Be(i);
+            
+            // Byte -> Utf16
+            ReadOnlySpan<byte> keyBytes = Encoding.UTF8.GetBytes(key);
+            dictUtf16.TryGetValue(keyBytes, out var val2).Should().BeTrue();
+            val2.Should().Be(i);
+        }
     }
 
     [Fact]

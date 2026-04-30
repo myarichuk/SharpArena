@@ -1,4 +1,6 @@
 using System.Collections;
+using System.Buffers;
+using System.Text;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -242,29 +244,125 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     }
 
     /// <summary>
-    /// Specialized ContainsKey for ArenaUtf16String using ReadOnlySpan{char} to avoid allocations.
+    /// Specialized ContainsKey for string types using ReadOnlySpan{char} to avoid allocations.
+    /// Supports cross-encoding for ArenaUtf8String.
     /// </summary>
     /// <param name="key">The key to locate in the <see cref="ArenaDictionary{TKey, TValue}"/>.</param>
     /// <returns><see langword="true"/> if the <see cref="ArenaDictionary{TKey, TValue}"/> contains an element with the key; otherwise, <see langword="false"/>.</returns>
     public bool ContainsKey(ReadOnlySpan<char> key)
     {
-        if (typeof(TKey) != typeof(ArenaUtf16String)) return false;
-        CheckAlive();
-        
-        uint capacity = (uint)_header->Capacity;
-        int* buckets = _header->Buckets;
-        ArenaUtf16String* keys = (ArenaUtf16String*)_header->Keys;
-        uint mask = capacity - 1;
-        uint hash = Hashing.HashString(key);
-        uint index = hash & mask;
-
-        while (true)
+        if (typeof(TKey) == typeof(ArenaUtf16String))
         {
-            int entryIdxPlusOne = buckets[index];
-            if (entryIdxPlusOne == 0) return false;
-            if (keys[entryIdxPlusOne - 1].Equals(key)) return true;
-            index = (index + 1) & mask;
+            CheckAlive();
+            
+            uint capacity = (uint)_header->Capacity;
+            int* buckets = _header->Buckets;
+            ArenaUtf16String* keys = (ArenaUtf16String*)_header->Keys;
+            uint mask = capacity - 1;
+            uint hash = Hashing.HashString(key);
+            uint index = hash & mask;
+
+            while (true)
+            {
+                int entryIdxPlusOne = buckets[index];
+                if (entryIdxPlusOne == 0) return false;
+                if (keys[entryIdxPlusOne - 1].Equals(key)) return true;
+                index = (index + 1) & mask;
+            }
         }
+        
+        if (typeof(TKey) == typeof(ArenaUtf8String))
+        {
+            CheckAlive();
+            int maxBytes = Encoding.UTF8.GetMaxByteCount(key.Length);
+            byte[]? rented = null;
+            Span<byte> buffer = maxBytes <= 512 ? stackalloc byte[512] : (rented = ArrayPool<byte>.Shared.Rent(maxBytes));
+            try
+            {
+                int written = Encoding.UTF8.GetBytes(key, buffer);
+                ReadOnlySpan<byte> byteKey = buffer.Slice(0, written);
+                
+                uint capacity = (uint)_header->Capacity;
+                int* buckets = _header->Buckets;
+                ArenaUtf8String* keys = (ArenaUtf8String*)_header->Keys;
+                uint mask = capacity - 1;
+                uint hash = Hashing.HashUtf8(byteKey);
+                uint index = hash & mask;
+                while (true)
+                {
+                    int entryIdxPlusOne = buckets[index];
+                    if (entryIdxPlusOne == 0) return false;
+                    if (keys[entryIdxPlusOne - 1].Equals(byteKey)) return true;
+                    index = (index + 1) & mask;
+                }
+            }
+            finally
+            {
+                if (rented != null) ArrayPool<byte>.Shared.Return(rented);
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Specialized ContainsKey for ArenaUtf8String using ReadOnlySpan{byte} to avoid allocations.
+    /// </summary>
+    /// <param name="key">The key to locate in the <see cref="ArenaDictionary{TKey, TValue}"/>.</param>
+    /// <returns><see langword="true"/> if the <see cref="ArenaDictionary{TKey, TValue}"/> contains an element with the key; otherwise, <see langword="false"/>.</returns>
+    public bool ContainsKey(ReadOnlySpan<byte> key)
+    {
+        if (typeof(TKey) == typeof(ArenaUtf8String))
+        {
+            CheckAlive();
+            uint capacity = (uint)_header->Capacity;
+            int* buckets = _header->Buckets;
+            ArenaUtf8String* keys = (ArenaUtf8String*)_header->Keys;
+            uint mask = capacity - 1;
+            uint hash = Hashing.HashUtf8(key);
+            uint index = hash & mask;
+            while (true)
+            {
+                int entryIdxPlusOne = buckets[index];
+                if (entryIdxPlusOne == 0) return false;
+                if (keys[entryIdxPlusOne - 1].Equals(key)) return true;
+                index = (index + 1) & mask;
+            }
+        }
+
+        if (typeof(TKey) == typeof(ArenaUtf16String))
+        {
+            CheckAlive();
+            int maxChars = Encoding.UTF8.GetMaxCharCount(key.Length);
+            char[]? rented = null;
+            Span<char> buffer = maxChars <= 512 ? stackalloc char[512] : (rented = ArrayPool<char>.Shared.Rent(maxChars));
+            try
+            {
+                int written = Encoding.UTF8.GetChars(key, buffer);
+                ReadOnlySpan<char> charKey = buffer.Slice(0, written);
+
+                uint capacity = (uint)_header->Capacity;
+                int* buckets = _header->Buckets;
+                ArenaUtf16String* keys = (ArenaUtf16String*)_header->Keys;
+                uint mask = capacity - 1;
+                uint hash = Hashing.HashString(charKey);
+                uint index = hash & mask;
+
+                while (true)
+                {
+                    int entryIdxPlusOne = buckets[index];
+                    if (entryIdxPlusOne == 0) return false;
+                    if (keys[entryIdxPlusOne - 1].Equals(charKey)) return true;
+                    index = (index + 1) & mask;
+                }
+            }
+            finally
+            {
+                if (rented != null) ArrayPool<char>.Shared.Return(rented);
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -288,38 +386,145 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     }
 
     /// <summary>
-    /// Specialized TryGetValue for ArenaUtf16String using ReadOnlySpan{char} to avoid allocations.
+    /// Specialized TryGetValue for string types using ReadOnlySpan{char} to avoid allocations.
+    /// Supports cross-encoding for ArenaUtf8String.
     /// </summary>
     /// <param name="key">The key whose value to get.</param>
     /// <param name="value">When this method returns, the value associated with the specified key, if the key is found; otherwise, the default value for the type of the <paramref name="value"/> parameter. This parameter is passed uninitialized.</param>
     /// <returns><see langword="true"/> if the <see cref="ArenaDictionary{TKey, TValue}"/> contains an element with the specified key; otherwise, <see langword="false"/>.</returns>
     public bool TryGetValue(ReadOnlySpan<char> key, out TValue value)
     {
-        if (typeof(TKey) != typeof(ArenaUtf16String))
+        if (typeof(TKey) == typeof(ArenaUtf16String))
         {
-            value = default;
-            return false;
-        }
-        CheckAlive();
+            CheckAlive();
 
-        uint capacity = (uint)_header->Capacity;
-        int* buckets = _header->Buckets;
-        ArenaUtf16String* keys = (ArenaUtf16String*)_header->Keys;
-        TValue* values = (TValue*)_header->Values;
-        uint mask = capacity - 1;
-        uint hash = Hashing.HashString(key);
-        uint index = hash & mask;
+            uint capacity = (uint)_header->Capacity;
+            int* buckets = _header->Buckets;
+            ArenaUtf16String* keys = (ArenaUtf16String*)_header->Keys;
+            TValue* values = (TValue*)_header->Values;
+            uint mask = capacity - 1;
+            uint hash = Hashing.HashString(key);
+            uint index = hash & mask;
 
-        while (true)
-        {
-            int entryIdxPlusOne = buckets[index];
-            if (entryIdxPlusOne == 0) break;
-            if (keys[entryIdxPlusOne - 1].Equals(key))
+            while (true)
             {
-                value = values[entryIdxPlusOne - 1];
-                return true;
+                int entryIdxPlusOne = buckets[index];
+                if (entryIdxPlusOne == 0) break;
+                if (keys[entryIdxPlusOne - 1].Equals(key))
+                {
+                    value = values[entryIdxPlusOne - 1];
+                    return true;
+                }
+                index = (index + 1) & mask;
             }
-            index = (index + 1) & mask;
+        }
+
+        if (typeof(TKey) == typeof(ArenaUtf8String))
+        {
+            CheckAlive();
+            int maxBytes = Encoding.UTF8.GetMaxByteCount(key.Length);
+            byte[]? rented = null;
+            Span<byte> buffer = maxBytes <= 512 ? stackalloc byte[512] : (rented = ArrayPool<byte>.Shared.Rent(maxBytes));
+            try
+            {
+                int written = Encoding.UTF8.GetBytes(key, buffer);
+                ReadOnlySpan<byte> byteKey = buffer.Slice(0, written);
+
+                uint capacity = (uint)_header->Capacity;
+                int* buckets = _header->Buckets;
+                ArenaUtf8String* keys = (ArenaUtf8String*)_header->Keys;
+                TValue* values = (TValue*)_header->Values;
+                uint mask = capacity - 1;
+                uint hash = Hashing.HashUtf8(byteKey);
+                uint index = hash & mask;
+                while (true)
+                {
+                    int entryIdxPlusOne = buckets[index];
+                    if (entryIdxPlusOne == 0) break;
+                    if (keys[entryIdxPlusOne - 1].Equals(byteKey))
+                    {
+                        value = values[entryIdxPlusOne - 1];
+                        return true;
+                    }
+                    index = (index + 1) & mask;
+                }
+            }
+            finally
+            {
+                if (rented != null) ArrayPool<byte>.Shared.Return(rented);
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    /// <summary>
+    /// Specialized TryGetValue for ArenaUtf8String using ReadOnlySpan{byte} to avoid allocations.
+    /// </summary>
+    /// <param name="key">The key whose value to get.</param>
+    /// <param name="value">When this method returns, the value associated with the specified key, if the key is found; otherwise, the default value for the type of the <paramref name="value"/> parameter. This parameter is passed uninitialized.</param>
+    /// <returns><see langword="true"/> if the <see cref="ArenaDictionary{TKey, TValue}"/> contains an element with the specified key; otherwise, <see langword="false"/>.</returns>
+    public bool TryGetValue(ReadOnlySpan<byte> key, out TValue value)
+    {
+        if (typeof(TKey) == typeof(ArenaUtf8String))
+        {
+            CheckAlive();
+            uint capacity = (uint)_header->Capacity;
+            int* buckets = _header->Buckets;
+            ArenaUtf8String* keys = (ArenaUtf8String*)_header->Keys;
+            TValue* values = (TValue*)_header->Values;
+            uint mask = capacity - 1;
+            uint hash = Hashing.HashUtf8(key);
+            uint index = hash & mask;
+            while (true)
+            {
+                int entryIdxPlusOne = buckets[index];
+                if (entryIdxPlusOne == 0) break;
+                if (keys[entryIdxPlusOne - 1].Equals(key))
+                {
+                    value = values[entryIdxPlusOne - 1];
+                    return true;
+                }
+                index = (index + 1) & mask;
+            }
+        }
+
+        if (typeof(TKey) == typeof(ArenaUtf16String))
+        {
+            CheckAlive();
+            int maxChars = Encoding.UTF8.GetMaxCharCount(key.Length);
+            char[]? rented = null;
+            Span<char> buffer = maxChars <= 512 ? stackalloc char[512] : (rented = ArrayPool<char>.Shared.Rent(maxChars));
+            try
+            {
+                int written = Encoding.UTF8.GetChars(key, buffer);
+                ReadOnlySpan<char> charKey = buffer.Slice(0, written);
+
+                uint capacity = (uint)_header->Capacity;
+                int* buckets = _header->Buckets;
+                ArenaUtf16String* keys = (ArenaUtf16String*)_header->Keys;
+                TValue* values = (TValue*)_header->Values;
+                uint mask = capacity - 1;
+                uint hash = Hashing.HashString(charKey);
+                uint index = hash & mask;
+
+                while (true)
+                {
+                    int entryIdxPlusOne = buckets[index];
+                    if (entryIdxPlusOne == 0) break;
+                    if (keys[entryIdxPlusOne - 1].Equals(charKey))
+                    {
+                        value = values[entryIdxPlusOne - 1];
+                        return true;
+                    }
+                    index = (index + 1) & mask;
+                }
+            }
+            finally
+            {
+                if (rented != null) ArrayPool<char>.Shared.Return(rented);
+            }
         }
 
         value = default;
