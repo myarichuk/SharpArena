@@ -237,6 +237,13 @@ public readonly unsafe struct ArenaUtf8String : IEquatable<ArenaUtf8String>
         return true;
     }    
     
+    /// <summary>
+    /// Decodes the UTF-8 content into the provided character buffer.
+    /// Returns the number of characters written.
+    /// </summary>
+    public int DecodeTo(Span<char> destination) => 
+        Encoding.UTF8.GetChars(AsSpan(), destination);
+
     /// <inheritdoc />
     public override bool Equals(object? obj) => 
         obj is ArenaUtf8String @as && Equals(@as) ||
