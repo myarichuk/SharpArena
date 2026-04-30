@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Runtime.CompilerServices;
 using SharpArena.Allocators;
 using System.Runtime.InteropServices;
@@ -23,13 +24,6 @@ public readonly unsafe struct ArenaUtf8String : IEquatable<ArenaUtf8String>
     /// <param name="value">The arena-backed string.</param>
     /// <returns>A span referencing the same bytes.</returns>
     public static implicit operator ReadOnlySpan<byte>(ArenaUtf8String value) => value.AsSpan();
-
-    private ArenaUtf8String(byte* ptr, int len, int generation)
-    {
-        _ptr = ptr;
-        _len = len;
-        _generation = generation;
-    }
 
     internal ArenaUtf8String(ArenaAllocator arena, byte* ptr, int len)
     {
@@ -96,6 +90,37 @@ public readonly unsafe struct ArenaUtf8String : IEquatable<ArenaUtf8String>
     /// <summary>
     /// Clones the provided span into arena-managed memory.
     /// </summary>
+    /// <param name="src">The source string to copy.</param>
+    /// <param name="arena">Allocator providing unmanaged storage.</param>
+    /// <returns>An <see cref="ArenaUtf8String"/> referencing the cloned bytes.</returns>    
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static ArenaUtf8String Clone(string? src, ArenaAllocator arena)
+    {
+        if (string.IsNullOrEmpty(src))
+        {
+            return default;
+        }
+
+        var byteCount = Encoding.UTF8.GetByteCount(src);
+        if (byteCount == 0)
+        {
+            return default;
+        }
+
+        var dest = (byte*)arena.Alloc((uint)byteCount, align: 1);
+        fixed (char* srcPtr = src)
+        {
+            Encoding.UTF8.GetBytes(
+                new ReadOnlySpan<char>(srcPtr, src.Length),
+                new Span<byte>(dest, byteCount));
+        }
+
+        return new ArenaUtf8String(arena, dest, byteCount);
+    }
+    
+    /// <summary>
+    /// Clones the provided span into arena-managed memory.
+    /// </summary>
     /// <param name="src">The source bytes to copy.</param>
     /// <param name="arena">Allocator providing unmanaged storage.</param>
     /// <returns>An <see cref="ArenaUtf8String"/> referencing the cloned bytes.</returns>
@@ -136,8 +161,86 @@ public readonly unsafe struct ArenaUtf8String : IEquatable<ArenaUtf8String>
         return Equals(other.AsSpan());
     }
 
+    /// <summary>
+    /// Compare to a managed string.
+    /// </summary>
+    /// <param name="other">managed string to compare to</param>   
+    /// <returns>true if strings are equal, false otherwise</returns>
+    public bool Equals(string? other)
+    {
+        if (other == null)
+        {
+            return IsEmpty;
+        }
+
+        if (IsEmpty)
+        {
+            return false;
+        }
+
+        // Fast path: ASCII-only strings (very common)
+        if (IsAscii(other))
+        {
+            if (_len != other.Length)
+            {
+                return false;
+            }
+
+            fixed (char* src = other)
+            {
+                for (int i = 0; i < _len; i++)
+                {
+                    if (_ptr[i] != (byte)src[i]) return false;
+                }
+            }
+            return true;
+        }
+
+        int maxBytes = Encoding.UTF8.GetMaxByteCount(other.Length);
+
+        if (maxBytes <= 512)
+        {
+            Span<byte> buffer = stackalloc byte[maxBytes];
+            var written = Encoding.UTF8.GetBytes(other, buffer);
+            return AsSpan().SequenceEqual(buffer.Slice(0, written)); // ← SIMD here
+        }
+
+        // for large strings -> no choice but ArrayPool
+        byte[]? rented = null;
+        try
+        {
+            rented = ArrayPool<byte>.Shared.Rent(maxBytes);
+            var written = Encoding.UTF8.GetBytes(other, rented.AsSpan());
+            return AsSpan().SequenceEqual(new ReadOnlySpan<byte>(rented, 0, written));
+        }
+        finally
+        {
+            if (rented != null)
+            {
+                ArrayPool<byte>.Shared.Return(rented);
+            }
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool IsAscii(string s)
+    {
+        for (var index = 0; index < s.Length; index++)
+        {
+            var c = s[index];
+            if (c > 127)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }    
+    
     /// <inheritdoc />
-    public override bool Equals(object? obj) => obj is ArenaUtf8String s && Equals(s);
+    public override bool Equals(object? obj) => 
+        obj is ArenaUtf8String @as && Equals(@as) ||
+        obj is string s && Equals(s);
 
     /// <inheritdoc />
     public override int GetHashCode()
