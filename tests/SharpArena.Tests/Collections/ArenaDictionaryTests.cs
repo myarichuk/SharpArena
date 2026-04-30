@@ -184,6 +184,27 @@ public class ArenaDictionaryTests : IDisposable
     }
 
     [Fact]
+    public void ContainsKey_ByteSpan_OnUtf16Dict_Works()
+    {
+        var dict = new ArenaDictionary<ArenaUtf16String, int>(_arena);
+        dict.Add(ArenaUtf16String.Clone("world", _arena), 77);
+
+        ReadOnlySpan<byte> query = "world"u8;
+        dict.ContainsKey(query).Should().BeTrue();
+    }
+
+    [Fact]
+    public void TryGetValue_ByteSpan_OnUtf16Dict_Works()
+    {
+        var dict = new ArenaDictionary<ArenaUtf16String, int>(_arena);
+        dict.Add(ArenaUtf16String.Clone("world", _arena), 77);
+
+        ReadOnlySpan<byte> query = "world"u8;
+        dict.TryGetValue(query, out var val).Should().BeTrue();
+        val.Should().Be(77);
+    }
+
+    [Fact]
     public void Clear_ResetsCountAndLookups()
     {
         var dict = new ArenaDictionary<int, int>(_arena);
