@@ -121,6 +121,34 @@ public readonly unsafe struct ArenaUtf8String : IEquatable<ArenaUtf8String>
     /// <summary>
     /// Clones the provided span into arena-managed memory.
     /// </summary>
+    /// <param name="src">The source string to copy</param>
+    /// <param name="arena">Allocator providing unmanaged storage.</param>
+    /// <returns>An <see cref="ArenaUtf8String"/> referencing the cloned bytes.</returns>        
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static ArenaUtf8String Clone(ReadOnlySpan<char> src, ArenaAllocator arena)
+    {
+        if (src.IsEmpty)
+        {
+            return default;
+        }
+
+        var byteCount = Encoding.UTF8.GetByteCount(src);
+        if (byteCount == 0)
+        {
+            return default;
+        }
+
+        var dest = (byte*)arena.Alloc((uint)byteCount, align: 1);
+        Encoding.UTF8.GetBytes(
+            src,
+            new Span<byte>(dest, byteCount));
+
+        return new ArenaUtf8String(arena, dest, byteCount);
+    }    
+    
+    /// <summary>
+    /// Clones the provided span into arena-managed memory.
+    /// </summary>
     /// <param name="src">The source bytes to copy.</param>
     /// <param name="arena">Allocator providing unmanaged storage.</param>
     /// <returns>An <see cref="ArenaUtf8String"/> referencing the cloned bytes.</returns>
