@@ -92,10 +92,8 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void CheckAliveThrowIfNot()
-    {
+    private readonly void CheckAliveThrowIfNot() => 
         UnsafeHelpers.CheckAliveThrowIfNot(_arena, _generation, nameof(ArenaBlockList<T>));
-    }
 
     private static ArenaBlock<T>* CreateBlock(ArenaAllocator arena, nuint capacity)
     {
@@ -129,7 +127,7 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
     /// <summary>
     /// Gets the number of elements stored across all blocks.
     /// </summary>
-    public nuint Count
+    public readonly nuint Count
     {
         get
         {
@@ -141,7 +139,7 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
     /// <summary>
     /// Gets the total allocated capacity across all blocks.
     /// </summary>
-    public nuint Capacity
+    public readonly nuint Capacity
     {
         get
         {
@@ -192,19 +190,19 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
     /// </summary>
     /// <returns>An enumerator over the list.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public Enumerator GetEnumerator()
+    public readonly Enumerator GetEnumerator()
     {
         CheckAliveThrowIfNot();
         return new Enumerator(_head, _arena);
     }
 
-    IEnumerator<T> IEnumerable<T>.GetEnumerator()
+    readonly IEnumerator<T> IEnumerable<T>.GetEnumerator()
     {
         CheckAliveThrowIfNot();
         return new Enumerator(_head, _arena);
     }
 
-    IEnumerator IEnumerable.GetEnumerator()
+    readonly IEnumerator IEnumerable.GetEnumerator()
     {
         CheckAliveThrowIfNot();
         return new Enumerator(_head, _arena);
@@ -235,7 +233,7 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
         /// <summary>
         /// Gets the element in the collection at the current position of the enumerator.
         /// </summary>
-        public T Current => _current;
+        public readonly T Current => _current;
 
         /// <summary>
         /// Gets the element in the collection at the current position of the enumerator.
@@ -299,7 +297,7 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
     /// Copies the list contents into a contiguous span allocated from the arena.
     /// </summary>
     /// <returns>A span that owns a contiguous copy of the stored values.</returns>
-    public ReadOnlySpan<T> GetSpan()
+    public readonly ReadOnlySpan<T> GetSpan()
     {
         CheckAliveThrowIfNot();
         var total = Count;
