@@ -75,15 +75,13 @@ public unsafe struct ArenaList<T>
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void CheckAliveThrowIfNot()
-    {
+    private readonly void CheckAliveThrowIfNot() => 
         UnsafeHelpers.CheckAliveThrowIfNot(_arena, _generation, nameof(ArenaList<T>));
-    }
 
     /// <summary>
     /// Gets the number of elements stored in the list.
     /// </summary>
-    public int Length
+    public readonly int Length
     {
         get
         {
@@ -121,7 +119,7 @@ public unsafe struct ArenaList<T>
     /// </summary>
     /// <param name="index">The zero-based index of the item to access.</param>
     /// <returns>A reference to the item at the requested index.</returns>
-    public ref T this[int index]
+    public readonly ref T this[int index]
     {
         get
         {
@@ -258,7 +256,7 @@ public unsafe struct ArenaList<T>
     /// <summary>
     /// Gets a pointer to the raw unmanaged data of the list.
     /// </summary>
-    public T* AsPtr
+    public readonly T* AsPtr
     {
         get
         {
@@ -270,13 +268,13 @@ public unsafe struct ArenaList<T>
     /// <summary>
     /// Gets a writable span over the list's contents.
     /// </summary>
-    public Span<T> Span => AsSpan();
+    public readonly Span<T> Span => AsSpan();
 
     /// <summary>
     /// Provides a writable span view of the stored elements.
     /// </summary>
     /// <returns>A span referencing the list contents.</returns>
-    public Span<T> AsSpan()
+    public readonly Span<T> AsSpan()
     {
         CheckAliveThrowIfNot();
         return new Span<T>((T*)_header->Data, _header->Count);
@@ -286,7 +284,7 @@ public unsafe struct ArenaList<T>
     /// Provides a read-only span view of the stored elements.
     /// </summary>
     /// <returns>A read-only span referencing the list contents.</returns>
-    public ReadOnlySpan<T> AsReadOnlySpan()
+    public readonly ReadOnlySpan<T> AsReadOnlySpan()
     {
         CheckAliveThrowIfNot();
         return new ReadOnlySpan<T>((T*)_header->Data, _header->Count);
@@ -297,7 +295,7 @@ public unsafe struct ArenaList<T>
     /// </summary>
     /// <param name="item">The object to locate in the list.</param>
     /// <returns><see langword="true"/> if <paramref name="item"/> is found; otherwise, <see langword="false"/>.</returns>
-    public bool Contains(in T item)
+    public readonly bool Contains(in T item)
     {
         CheckAliveThrowIfNot();
         var span = AsSpan();

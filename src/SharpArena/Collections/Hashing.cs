@@ -22,14 +22,10 @@ internal static unsafe class Hashing
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static uint HashString(ReadOnlySpan<char> value)
-    {
-        return (uint)XxHash3.HashToUInt64(MemoryMarshal.AsBytes(value));
-    }
+    public static uint HashString(ReadOnlySpan<char> value) => 
+        (uint)XxHash3.HashToUInt64(MemoryMarshal.AsBytes(value));
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static uint HashUtf8(ReadOnlySpan<byte> value)
-    {
-        return (uint)XxHash3.HashToUInt64(value);
-    }
+    public static uint HashUtf8(ReadOnlySpan<byte> value) => 
+        (uint)XxHash3.HashToUInt64(value);
 }

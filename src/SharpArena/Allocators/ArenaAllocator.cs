@@ -158,8 +158,8 @@ public unsafe class ArenaAllocator : IDisposable
         seg->Size = segSize;
         seg->Base = mem + sizeof(ArenaSegment);
 #if DEBUG
-        seg->HeadCanary = ArenaSegment.Canary;
-        seg->TailCanary = ArenaSegment.Canary;
+        seg->HeadCanary = ArenaSegment.CANARY;
+        seg->TailCanary = ArenaSegment.CANARY;
 #endif
         return seg;
     }

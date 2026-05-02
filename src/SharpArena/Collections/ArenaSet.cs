@@ -70,7 +70,7 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     private readonly void CheckAlive() => 
         UnsafeHelpers.CheckAliveThrowIfNot(_arena, _generation, nameof(ArenaSet<>));
 
-    private int FindBucket(T item)
+    private readonly int FindBucket(T item)
     {
         var capacity = _header->Capacity;
         var buckets = _header->Buckets;
@@ -82,9 +82,15 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         while (true)
         {
             var entryIdxPlusOne = buckets[index];
-            if (entryIdxPlusOne == 0) return (int)index;
+            if (entryIdxPlusOne == 0)
+            {
+                return (int)index;
+            }
 
-            if (entries[entryIdxPlusOne - 1].Equals(item)) return (int)index;
+            if (entries[entryIdxPlusOne - 1].Equals(item))
+            {
+                return (int)index;
+            }
 
             index = (index + 1) & mask;
         }
@@ -93,7 +99,7 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     /// <summary>
     /// Gets the number of elements contained in the <see cref="ArenaSet{T}"/>.
     /// </summary>
-    public int Count
+    public readonly int Count
     {
         get
         {
@@ -105,7 +111,7 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     /// <summary>
     /// Gets a value indicating whether the <see cref="ArenaSet{T}"/> is read-only.
     /// </summary>
-    public bool IsReadOnly => false;
+    public readonly bool IsReadOnly => false;
 
     /// <summary>
     /// Adds an element to the current set and returns a value to indicate if the element was successfully added.
@@ -124,7 +130,10 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         var bucketIdx = FindBucket(item);
         var entryIdxPlusOne = _header->Buckets[bucketIdx];
         
-        if (entryIdxPlusOne != 0) return false;
+        if (entryIdxPlusOne != 0)
+        {
+            return false;
+        }
 
         var newEntryIdx = _header->Count++;
         _header->Buckets[bucketIdx] = newEntryIdx + 1;
@@ -180,7 +189,7 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     /// </summary>
     /// <param name="item">The object to locate in the <see cref="ArenaSet{T}"/>.</param>
     /// <returns><see langword="true"/> if <paramref name="item"/> is found in the <see cref="ArenaSet{T}"/>; otherwise, <see langword="false"/>.</returns>
-    public bool Contains(T item)
+    public readonly bool Contains(T item)
     {
         CheckAlive();
         var bucketIdx = FindBucket(item);
@@ -192,9 +201,13 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     /// </summary>
     /// <param name="item">The object to locate in the <see cref="ArenaSet{T}"/>.</param>
     /// <returns><see langword="true"/> if <paramref name="item"/> is found in the <see cref="ArenaSet{T}"/>; otherwise, <see langword="false"/>.</returns>
-    public bool Contains(ReadOnlySpan<char> item)
+    public readonly bool Contains(ReadOnlySpan<char> item)
     {
-        if (typeof(T) != typeof(ArenaUtf16String)) return false;
+        if (typeof(T) != typeof(ArenaUtf16String))
+        {
+            return false;
+        }
+
         CheckAlive();
         
         var capacity = _header->Capacity;
@@ -207,9 +220,15 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         while (true)
         {
             var entryIdxPlusOne = buckets[index];
-            if (entryIdxPlusOne == 0) return false;
+            if (entryIdxPlusOne == 0)
+            {
+                return false;
+            }
 
-            if (entries[entryIdxPlusOne - 1].Equals(item)) return true;
+            if (entries[entryIdxPlusOne - 1].Equals(item))
+            {
+                return true;
+            }
 
             index = (index + 1) & mask;
         }
@@ -220,9 +239,13 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     /// </summary>
     /// <param name="item">The object to locate in the <see cref="ArenaSet{T}"/>.</param>
     /// <returns><see langword="true"/> if <paramref name="item"/> is found in the <see cref="ArenaSet{T}"/>; otherwise, <see langword="false"/>.</returns>
-    public bool Contains(ReadOnlySpan<byte> item)
+    public readonly bool Contains(ReadOnlySpan<byte> item)
     {
-        if (typeof(T) != typeof(ArenaUtf8String)) return false;
+        if (typeof(T) != typeof(ArenaUtf8String))
+        {
+            return false;
+        }
+
         CheckAlive();
 
         var capacity = _header->Capacity;
@@ -235,9 +258,15 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         while (true)
         {
             var entryIdxPlusOne = buckets[index];
-            if (entryIdxPlusOne == 0) return false;
+            if (entryIdxPlusOne == 0)
+            {
+                return false;
+            }
 
-            if (entries[entryIdxPlusOne - 1].Equals(item)) return true;
+            if (entries[entryIdxPlusOne - 1].Equals(item))
+            {
+                return true;
+            }
 
             index = (index + 1) & mask;
         }
@@ -253,9 +282,20 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     /// <exception cref="ArgumentException">The number of elements in the source <see cref="ArenaSet{T}"/> is greater than the available space from <paramref name="arrayIndex"/> to the end of the destination <paramref name="array"/>.</exception>
     public void CopyTo(T[] array, int arrayIndex)
     {
-        if (array == null) throw new ArgumentNullException(nameof(array));
-        if (arrayIndex < 0 || arrayIndex > array.Length) throw new ArgumentOutOfRangeException(nameof(arrayIndex));
-        if (array.Length - arrayIndex < Count) throw new ArgumentException("Destination array is too small.");
+        if (array == null)
+        {
+            throw new ArgumentNullException(nameof(array));
+        }
+
+        if (arrayIndex < 0 || arrayIndex > array.Length)
+        {
+            throw new ArgumentOutOfRangeException(nameof(arrayIndex));
+        }
+
+        if (array.Length - arrayIndex < Count)
+        {
+            throw new ArgumentException("Destination array is too small.");
+        }
 
         CheckAlive();
         var count = _header->Count;
@@ -284,7 +324,10 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         var newCap = 1;
         while (newCap < count / LoadFactor) newCap <<= 1;
         
-        if (newCap >= _header->Capacity) return;
+        if (newCap >= _header->Capacity)
+        {
+            return;
+        }
 
         var oldEntries = (T*)_header->Entries;
         var newBuckets = (int*)_arena.Alloc((nuint)newCap * sizeof(int), align: 16);
@@ -317,13 +360,13 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     /// Returns an enumerator that iterates through the <see cref="ArenaSet{T}"/>.
     /// </summary>
     /// <returns>A <see cref="IEnumerator{T}"/> for the <see cref="ArenaSet{T}"/>.</returns>
-    public IEnumerator<T> GetEnumerator() => new Enumerator(this);
-    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    public readonly IEnumerator<T> GetEnumerator() => new Enumerator(this);
+    readonly IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
     /// <summary>
     /// Enumerates the elements of an <see cref="ArenaSet{T}"/>.
     /// </summary>
-    public unsafe struct Enumerator : IEnumerator<T>
+    private struct Enumerator : IEnumerator<T>
     {
         private readonly ArenaSet<T> _set;
         private int _index;
@@ -344,7 +387,10 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         {
             _set.CheckAlive();
             var header = _set._header;
-            if (header == null) return false;
+            if (header == null)
+            {
+                return false;
+            }
 
             if (++_index < header->Count)
             {
@@ -357,12 +403,12 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         /// <summary>
         /// Gets the element in the collection at the current position of the enumerator.
         /// </summary>
-        public T Current => _current;
+        public readonly T Current => _current;
 
         /// <summary>
         /// Gets the element in the collection at the current position of the enumerator.
         /// </summary>
-        object IEnumerator.Current => _current;
+        readonly object IEnumerator.Current => _current;
 
         /// <summary>
         /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
@@ -384,15 +430,23 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     /// <summary>
     /// Determines whether the current set is a proper (strict) subset of a specified collection.
     /// </summary>
-    public bool IsProperSubsetOf(IEnumerable<T> other)
+    public readonly bool IsProperSubsetOf(IEnumerable<T> other)
     {
-        if (other == null) throw new ArgumentNullException(nameof(other));
+        if (other == null)
+        {
+            throw new ArgumentNullException(nameof(other));
+        }
+
         CheckAlive();
         var matchCount = 0;
         var otherSet = new HashSet<T>(other); 
         foreach (var item in this)
         {
-            if (!otherSet.Contains(item)) return false;
+            if (!otherSet.Contains(item))
+            {
+                return false;
+            }
+
             matchCount++;
         }
         return otherSet.Count > matchCount;
@@ -401,14 +455,22 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     /// <summary>
     /// Determines whether the current set is a proper (strict) superset of a specified collection.
     /// </summary>
-    public bool IsProperSupersetOf(IEnumerable<T> other)
+    public readonly bool IsProperSupersetOf(IEnumerable<T> other)
     {
-        if (other == null) throw new ArgumentNullException(nameof(other));
+        if (other == null)
+        {
+            throw new ArgumentNullException(nameof(other));
+        }
+
         CheckAlive();
         var otherCount = 0;
         foreach (var item in other)
         {
-            if (!Contains(item)) return false;
+            if (!Contains(item))
+            {
+                return false;
+            }
+
             otherCount++;
         }
         return Count > otherCount;
@@ -417,15 +479,26 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     /// <summary>
     /// Determines whether a set is a subset of a specified collection.
     /// </summary>
-    public bool IsSubsetOf(IEnumerable<T> other)
+    public readonly bool IsSubsetOf(IEnumerable<T> other)
     {
-        if (other == null) throw new ArgumentNullException(nameof(other));
+        if (other == null)
+        {
+            throw new ArgumentNullException(nameof(other));
+        }
+
         CheckAlive();
-        if (Count == 0) return true;
+        if (Count == 0)
+        {
+            return true;
+        }
+
         var otherSet = new HashSet<T>(other);
         foreach (var item in this)
         {
-            if (!otherSet.Contains(item)) return false;
+            if (!otherSet.Contains(item))
+            {
+                return false;
+            }
         }
         return true;
     }
@@ -433,13 +506,20 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     /// <summary>
     /// Determines whether the current set is a superset of a specified collection.
     /// </summary>
-    public bool IsSupersetOf(IEnumerable<T> other)
+    public readonly bool IsSupersetOf(IEnumerable<T> other)
     {
-        if (other == null) throw new ArgumentNullException(nameof(other));
+        if (other == null)
+        {
+            throw new ArgumentNullException(nameof(other));
+        }
+
         CheckAlive();
         foreach (var item in other)
         {
-            if (!Contains(item)) return false;
+            if (!Contains(item))
+            {
+                return false;
+            }
         }
         return true;
     }
@@ -447,13 +527,20 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     /// <summary>
     /// Determines whether the current set overlaps with the specified collection.
     /// </summary>
-    public bool Overlaps(IEnumerable<T> other)
+    public readonly bool Overlaps(IEnumerable<T> other)
     {
-        if (other == null) throw new ArgumentNullException(nameof(other));
+        if (other == null)
+        {
+            throw new ArgumentNullException(nameof(other));
+        }
+
         CheckAlive();
         foreach (var item in other)
         {
-            if (Contains(item)) return true;
+            if (Contains(item))
+            {
+                return true;
+            }
         }
         return false;
     }
@@ -461,14 +548,22 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     /// <summary>
     /// Determines whether the current set and the specified collection contain the same elements.
     /// </summary>
-    public bool SetEquals(IEnumerable<T> other)
+    public readonly bool SetEquals(IEnumerable<T> other)
     {
-        if (other == null) throw new ArgumentNullException(nameof(other));
+        if (other == null)
+        {
+            throw new ArgumentNullException(nameof(other));
+        }
+
         CheckAlive();
         var otherCount = 0;
         foreach (var item in other)
         {
-            if (!Contains(item)) return false;
+            if (!Contains(item))
+            {
+                return false;
+            }
+
             otherCount++;
         }
         return Count == otherCount;
@@ -482,7 +577,11 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     /// </summary>
     public void UnionWith(IEnumerable<T> other)
     {
-        if (other == null) throw new ArgumentNullException(nameof(other));
+        if (other == null)
+        {
+            throw new ArgumentNullException(nameof(other));
+        }
+
         CheckAlive();
         foreach (var item in other) Add(item);
     }

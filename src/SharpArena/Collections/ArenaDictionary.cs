@@ -75,7 +75,7 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     private readonly void CheckAlive() => 
         UnsafeHelpers.CheckAliveThrowIfNot(_arena, _generation, nameof(ArenaDictionary<,>));
 
-    private int FindBucket(TKey key)
+    private readonly int FindBucket(TKey key)
     {
         uint capacity = (uint)_header->Capacity;
         int* buckets = _header->Buckets;
@@ -110,7 +110,7 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     /// <summary>
     /// Gets a value indicating whether the <see cref="ArenaDictionary{TKey, TValue}"/> is read-only.
     /// </summary>
-    public bool IsReadOnly => false;
+    public readonly bool IsReadOnly => false;
 
     /// <summary>
     /// Gets or sets the element with the specified key.
@@ -120,7 +120,7 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     /// <exception cref="KeyNotFoundException">The property is retrieved and <paramref name="key"/> is not found.</exception>
     public TValue this[TKey key]
     {
-        get => TryGetValue(key, out var value) ? 
+        readonly get => TryGetValue(key, out var value) ? 
             value : throw new KeyNotFoundException();
         set => AddOrUpdate(key, value);
     }
@@ -236,7 +236,7 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     /// </summary>
     /// <param name="key">The key to locate in the <see cref="ArenaDictionary{TKey, TValue}"/>.</param>
     /// <returns><see langword="true"/> if the <see cref="ArenaDictionary{TKey, TValue}"/> contains an element with the key; otherwise, <see langword="false"/>.</returns>
-    public bool ContainsKey(TKey key)
+    public readonly bool ContainsKey(TKey key)
     {
         CheckAlive();
         int bucketIdx = FindBucket(key);
@@ -249,7 +249,7 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     /// </summary>
     /// <param name="key">The key to locate in the <see cref="ArenaDictionary{TKey, TValue}"/>.</param>
     /// <returns><see langword="true"/> if the <see cref="ArenaDictionary{TKey, TValue}"/> contains an element with the key; otherwise, <see langword="false"/>.</returns>
-    public bool ContainsKey(ReadOnlySpan<char> key)
+    public readonly bool ContainsKey(ReadOnlySpan<char> key)
     {
         if (typeof(TKey) == typeof(ArenaUtf16String))
         {
@@ -310,7 +310,7 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     /// </summary>
     /// <param name="key">The key to locate in the <see cref="ArenaDictionary{TKey, TValue}"/>.</param>
     /// <returns><see langword="true"/> if the <see cref="ArenaDictionary{TKey, TValue}"/> contains an element with the key; otherwise, <see langword="false"/>.</returns>
-    public bool ContainsKey(ReadOnlySpan<byte> key)
+    public readonly bool ContainsKey(ReadOnlySpan<byte> key)
     {
         if (typeof(TKey) == typeof(ArenaUtf8String))
         {
@@ -371,7 +371,7 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     /// <param name="key">The key whose value to get.</param>
     /// <param name="value">When this method returns, the value associated with the specified key, if the key is found; otherwise, the default value for the type of the <paramref name="value"/> parameter. This parameter is passed uninitialized.</param>
     /// <returns><see langword="true"/> if the <see cref="ArenaDictionary{TKey, TValue}"/> contains an element with the specified key; otherwise, <see langword="false"/>.</returns>
-    public bool TryGetValue(TKey key, out TValue value)
+    public readonly bool TryGetValue(TKey key, out TValue value)
     {
         CheckAlive();
         int bucketIdx = FindBucket(key);
@@ -465,7 +465,7 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     /// <param name="key">The key whose value to get.</param>
     /// <param name="value">When this method returns, the value associated with the specified key, if the key is found; otherwise, the default value for the type of the <paramref name="value"/> parameter. This parameter is passed uninitialized.</param>
     /// <returns><see langword="true"/> if the <see cref="ArenaDictionary{TKey, TValue}"/> contains an element with the specified key; otherwise, <see langword="false"/>.</returns>
-    public bool TryGetValue(ReadOnlySpan<byte> key, out TValue value)
+    public readonly bool TryGetValue(ReadOnlySpan<byte> key, out TValue value)
     {
         if (typeof(TKey) == typeof(ArenaUtf8String))
         {
@@ -590,7 +590,7 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     /// </summary>
     public bool Remove(TKey key) => throw new NotSupportedException();
     void ICollection<KeyValuePair<TKey, TValue>>.Add(KeyValuePair<TKey, TValue> item) => Add(item.Key, item.Value);
-    bool ICollection<KeyValuePair<TKey, TValue>>.Contains(KeyValuePair<TKey, TValue> item)
+    readonly bool ICollection<KeyValuePair<TKey, TValue>>.Contains(KeyValuePair<TKey, TValue> item)
     {
         if (TryGetValue(item.Key, out var value))
         {
@@ -618,8 +618,8 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     /// Returns an enumerator that iterates through the <see cref="ArenaDictionary{TKey, TValue}"/>.
     /// </summary>
     /// <returns>A <see cref="IEnumerator{KeyValuePair}"/> for the <see cref="ArenaDictionary{TKey, TValue}"/>.</returns>
-    public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator() => new Enumerator(this);
-    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    public readonly IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator() => new Enumerator(this);
+    readonly IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
     /// <summary>
     /// Enumerates the elements of an <see cref="ArenaDictionary{TKey, TValue}"/>.
@@ -657,12 +657,12 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
         /// <summary>
         /// Gets the element at the current position of the enumerator.
         /// </summary>
-        public KeyValuePair<TKey, TValue> Current => _current;
+        public readonly KeyValuePair<TKey, TValue> Current => _current;
 
         /// <summary>
         /// Gets the element at the current position of the enumerator.
         /// </summary>
-        object IEnumerator.Current => _current;
+        readonly object IEnumerator.Current => _current;
 
         /// <summary>
         /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
@@ -679,11 +679,11 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     {
         private readonly ArenaDictionary<TKey, TValue> _dict;
         public KeyCollection(ArenaDictionary<TKey, TValue> dict) => _dict = dict;
-        public int Count => _dict.Count;
-        public bool IsReadOnly => true;
+        public readonly int Count => _dict.Count;
+        public readonly bool IsReadOnly => true;
         public void Add(TKey item) => throw new NotSupportedException();
         public void Clear() => throw new NotSupportedException();
-        public bool Contains(TKey item) => _dict.ContainsKey(item);
+        public readonly bool Contains(TKey item) => _dict.ContainsKey(item);
         public void CopyTo(TKey[] array, int arrayIndex)
         {
             int count = _dict.Count;
@@ -694,10 +694,10 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
             }
         }
         public bool Remove(TKey item) => throw new NotSupportedException();
-        public IEnumerator<TKey> GetEnumerator() => new KeyEnumerator(_dict);
-        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+        public readonly IEnumerator<TKey> GetEnumerator() => new KeyEnumerator(_dict);
+        readonly IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-        private unsafe struct KeyEnumerator : IEnumerator<TKey>
+        private struct KeyEnumerator : IEnumerator<TKey>
         {
             private readonly ArenaDictionary<TKey, TValue> _dict;
             private int _index;
@@ -723,8 +723,8 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
                 return false;
             }
 
-            public TKey Current => _current;
-            object IEnumerator.Current => _current;
+            public readonly TKey Current => _current;
+            readonly object IEnumerator.Current => _current;
             public void Dispose() { }
             public void Reset() => _index = -1;
         }

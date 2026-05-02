@@ -20,7 +20,7 @@ public unsafe struct ArenaSegment
     /// </summary>
     public ulong TailCanary;
 
-    internal const ulong Canary = 0xDEADBEEFCAFEBABEul;
+    internal const ulong CANARY = 0xDEADBEEFCAFEBABEul;
 #endif
 
     /// <summary>
@@ -51,8 +51,8 @@ public unsafe struct ArenaSegment
     public bool TryAlloc(nuint size, nuint align, out void* ptr)
     {
 #if DEBUG
-        Debug.Assert(HeadCanary == Canary, "Arena segment head canary corrupted");
-        Debug.Assert(TailCanary == Canary, "Arena segment tail canary corrupted");
+        Debug.Assert(HeadCanary == CANARY, "Arena segment head canary corrupted");
+        Debug.Assert(TailCanary == CANARY, "Arena segment tail canary corrupted");
 #endif
         if (align == 0)
         {
