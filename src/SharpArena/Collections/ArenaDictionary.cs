@@ -392,7 +392,7 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     /// <param name="key">The key whose value to get.</param>
     /// <param name="value">When this method returns, the value associated with the specified key, if the key is found; otherwise, the default value for the type of the <paramref name="value"/> parameter. This parameter is passed uninitialized.</param>
     /// <returns><see langword="true"/> if the <see cref="ArenaDictionary{TKey, TValue}"/> contains an element with the specified key; otherwise, <see langword="false"/>.</returns>
-    public bool TryGetValue(ReadOnlySpan<char> key, out TValue value)
+    public readonly bool TryGetValue(ReadOnlySpan<char> key, out TValue value)
     {
         if (typeof(TKey) == typeof(ArenaUtf16String))
         {
