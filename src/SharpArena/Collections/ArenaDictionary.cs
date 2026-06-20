@@ -86,10 +86,10 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
 
         while (true)
         {
-            int entryIdxPlusOne = buckets[index];
-            if (entryIdxPlusOne == 0) return (int)index;
+            int entryIdx = buckets[index] - 1;
+            if (entryIdx < 0) return (int)index;
 
-            if (keys[entryIdxPlusOne - 1].Equals(key)) return (int)index;
+            if (keys[entryIdx].Equals(key)) return (int)index;
 
             index = (index + 1) & mask;
         }
@@ -167,8 +167,8 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
         }
 
         int bucketIdx = FindBucket(key);
-        int entryIdxPlusOne = _header->Buckets[bucketIdx];
-        if (entryIdxPlusOne != 0) return false;
+        int entryIdx = _header->Buckets[bucketIdx] - 1;
+        if (entryIdx >= 0) return false;
 
         int newEntryIdx = _header->Count++;
         _header->Buckets[bucketIdx] = newEntryIdx + 1;
@@ -186,8 +186,8 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
         }
 
         int bucketIdx = FindBucket(key);
-        int entryIdxPlusOne = _header->Buckets[bucketIdx];
-        if (entryIdxPlusOne == 0)
+        int entryIdx = _header->Buckets[bucketIdx] - 1;
+        if (entryIdx < 0)
         {
             int newEntryIdx = _header->Count++;
             _header->Buckets[bucketIdx] = newEntryIdx + 1;
@@ -196,7 +196,7 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
         }
         else
         {
-            ((TValue*)_header->Values)[entryIdxPlusOne - 1] = value;
+            ((TValue*)_header->Values)[entryIdx] = value;
         }
     }
 
@@ -264,9 +264,9 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
 
             while (true)
             {
-                int entryIdxPlusOne = buckets[index];
-                if (entryIdxPlusOne == 0) return false;
-                if (keys[entryIdxPlusOne - 1].Equals(key)) return true;
+                int entryIdx = buckets[index] - 1;
+                if (entryIdx < 0) return false;
+                if (keys[entryIdx].Equals(key)) return true;
                 index = (index + 1) & mask;
             }
         }
@@ -290,9 +290,9 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
                 uint index = hash & mask;
                 while (true)
                 {
-                    int entryIdxPlusOne = buckets[index];
-                    if (entryIdxPlusOne == 0) return false;
-                    if (keys[entryIdxPlusOne - 1].Equals(byteKey)) return true;
+                    int entryIdx = buckets[index] - 1;
+                    if (entryIdx < 0) return false;
+                    if (keys[entryIdx].Equals(byteKey)) return true;
                     index = (index + 1) & mask;
                 }
             }
@@ -323,9 +323,9 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
             uint index = hash & mask;
             while (true)
             {
-                int entryIdxPlusOne = buckets[index];
-                if (entryIdxPlusOne == 0) return false;
-                if (keys[entryIdxPlusOne - 1].Equals(key)) return true;
+                int entryIdx = buckets[index] - 1;
+                if (entryIdx < 0) return false;
+                if (keys[entryIdx].Equals(key)) return true;
                 index = (index + 1) & mask;
             }
         }
@@ -350,9 +350,9 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
 
                 while (true)
                 {
-                    int entryIdxPlusOne = buckets[index];
-                    if (entryIdxPlusOne == 0) return false;
-                    if (keys[entryIdxPlusOne - 1].Equals(charKey)) return true;
+                    int entryIdx = buckets[index] - 1;
+                    if (entryIdx < 0) return false;
+                    if (keys[entryIdx].Equals(charKey)) return true;
                     index = (index + 1) & mask;
                 }
             }
@@ -375,10 +375,10 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     {
         CheckAlive();
         int bucketIdx = FindBucket(key);
-        int entryIdxPlusOne = _header->Buckets[bucketIdx];
-        if (entryIdxPlusOne != 0)
+        int entryIdx = _header->Buckets[bucketIdx] - 1;
+        if (entryIdx >= 0)
         {
-            value = ((TValue*)_header->Values)[entryIdxPlusOne - 1];
+            value = ((TValue*)_header->Values)[entryIdx];
             return true;
         }
         value = default;
@@ -408,11 +408,11 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
 
             while (true)
             {
-                int entryIdxPlusOne = buckets[index];
-                if (entryIdxPlusOne == 0) break;
-                if (keys[entryIdxPlusOne - 1].Equals(key))
+                int entryIdx = buckets[index] - 1;
+                if (entryIdx < 0) break;
+                if (keys[entryIdx].Equals(key))
                 {
-                    value = values[entryIdxPlusOne - 1];
+                    value = values[entryIdx];
                     return true;
                 }
                 index = (index + 1) & mask;
@@ -439,11 +439,11 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
                 uint index = hash & mask;
                 while (true)
                 {
-                    int entryIdxPlusOne = buckets[index];
-                    if (entryIdxPlusOne == 0) break;
-                    if (keys[entryIdxPlusOne - 1].Equals(byteKey))
+                    int entryIdx = buckets[index] - 1;
+                    if (entryIdx < 0) break;
+                    if (keys[entryIdx].Equals(byteKey))
                     {
-                        value = values[entryIdxPlusOne - 1];
+                        value = values[entryIdx];
                         return true;
                     }
                     index = (index + 1) & mask;
@@ -479,11 +479,11 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
             uint index = hash & mask;
             while (true)
             {
-                int entryIdxPlusOne = buckets[index];
-                if (entryIdxPlusOne == 0) break;
-                if (keys[entryIdxPlusOne - 1].Equals(key))
+                int entryIdx = buckets[index] - 1;
+                if (entryIdx < 0) break;
+                if (keys[entryIdx].Equals(key))
                 {
-                    value = values[entryIdxPlusOne - 1];
+                    value = values[entryIdx];
                     return true;
                 }
                 index = (index + 1) & mask;
@@ -511,11 +511,11 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
 
                 while (true)
                 {
-                    int entryIdxPlusOne = buckets[index];
-                    if (entryIdxPlusOne == 0) break;
-                    if (keys[entryIdxPlusOne - 1].Equals(charKey))
+                    int entryIdx = buckets[index] - 1;
+                    if (entryIdx < 0) break;
+                    if (keys[entryIdx].Equals(charKey))
                     {
-                        value = values[entryIdxPlusOne - 1];
+                        value = values[entryIdx];
                         return true;
                     }
                     index = (index + 1) & mask;
