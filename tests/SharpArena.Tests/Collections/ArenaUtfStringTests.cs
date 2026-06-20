@@ -48,6 +48,34 @@ public unsafe class ArenaUtfStringTests : IDisposable
     }
 
     [Fact]
+    public void ArenaUtf8String_DecodeTo_DecodesCorrectly()
+    {
+        var text = "Hello DecodeTo!";
+        var bytes = System.Text.Encoding.UTF8.GetBytes(text);
+        var utf8String = ArenaUtf8String.Clone(bytes, _arena);
+
+        var destination = new char[text.Length];
+        var decodedLength = utf8String.DecodeTo(destination);
+
+        decodedLength.Should().Be(text.Length);
+        new string(destination).Should().Be(text);
+    }
+
+    [Fact]
+    public void ArenaUtf8String_DecodeTo_WithEmojis()
+    {
+        var text = "Hello DecodeTo! 😊";
+        var bytes = System.Text.Encoding.UTF8.GetBytes(text);
+        var utf8String = ArenaUtf8String.Clone(bytes, _arena);
+
+        var destination = new char[text.Length];
+        var decodedLength = utf8String.DecodeTo(destination);
+
+        decodedLength.Should().Be(text.Length);
+        new string(destination).Should().Be(text);
+    }
+
+    [Fact]
     public void ArenaUtf8String_GetHashCode_IsContentBased()
     {
         var bytes = "Hash test"u8;
