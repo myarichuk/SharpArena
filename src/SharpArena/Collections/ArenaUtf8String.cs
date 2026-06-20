@@ -224,11 +224,15 @@ public readonly unsafe struct ArenaUtf8String : IEquatable<ArenaUtf8String>
             return true;
         }
 
-        int maxBytes = Encoding.UTF8.GetMaxByteCount(other.Length);
-
-        if (maxBytes <= 512)
+        int exactByteCount = Encoding.UTF8.GetByteCount(other);
+        if (exactByteCount != _len)
         {
-            Span<byte> buffer = stackalloc byte[maxBytes];
+            return false;
+        }
+
+        if (exactByteCount <= 512)
+        {
+            Span<byte> buffer = stackalloc byte[exactByteCount];
             var written = Encoding.UTF8.GetBytes(other, buffer);
             return AsSpan().SequenceEqual(buffer.Slice(0, written)); // ← SIMD here
         }
@@ -237,7 +241,7 @@ public readonly unsafe struct ArenaUtf8String : IEquatable<ArenaUtf8String>
         byte[]? rented = null;
         try
         {
-            rented = ArrayPool<byte>.Shared.Rent(maxBytes);
+            rented = ArrayPool<byte>.Shared.Rent(exactByteCount);
             var written = Encoding.UTF8.GetBytes(other, rented.AsSpan());
             return AsSpan().SequenceEqual(new ReadOnlySpan<byte>(rented, 0, written));
         }
