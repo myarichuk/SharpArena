@@ -556,7 +556,8 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
         }
 
         int newCap = 1;
-        while (newCap < count / LoadFactor) newCap <<= 1;
+        float target = count / LoadFactor;
+        while (newCap < target) newCap <<= 1;
         if (newCap >= _header->Capacity) return;
 
         TKey* oldKeys = (TKey*)_header->Keys;
