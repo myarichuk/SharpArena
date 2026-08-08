@@ -144,6 +144,11 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     private void Grow()
     {
         var oldCap = _header->Capacity;
+        if (oldCap >= 0x40000000)
+        {
+            throw new InvalidOperationException("ArenaSet capacity overflow.");
+        }
+
         var newCap = oldCap * 2;
         var oldEntries = (T*)_header->Entries;
         var count = _header->Count;

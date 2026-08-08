@@ -157,7 +157,13 @@ public unsafe struct ArenaList<T>
         CheckAliveThrowIfNot();
         if (span.IsEmpty) return;
 
-        EnsureCapacity(_header->Count + span.Length);
+        long newCount = (long)_header->Count + span.Length;
+        if (newCount > int.MaxValue)
+        {
+            throw new InvalidOperationException("ArenaList capacity overflow.");
+        }
+
+        EnsureCapacity((int)newCount);
 
         fixed (T* src = span)
         {

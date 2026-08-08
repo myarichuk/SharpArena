@@ -203,6 +203,11 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     private void Grow()
     {
         int oldCap = _header->Capacity;
+        if (oldCap >= 0x40000000)
+        {
+            throw new InvalidOperationException("ArenaDictionary capacity overflow.");
+        }
+
         int newCap = oldCap * 2;
         int count = _header->Count;
         TKey* oldKeys = (TKey*)_header->Keys;
