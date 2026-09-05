@@ -281,32 +281,18 @@ public static unsafe class NativeAllocator
         nuint reservedSize = 0;
         NativeAllocatorBackend expectedBackend = backend;
 
-        try
-        {
-            var guardPrefix = header->GuardPrefix;
-            rawPtr = (nint)((byte*)header - guardPrefix);
-            reservedSize = header->ReservedSize;
-            expectedBackend = header->Backend;
-        }
-        catch (AccessViolationException)
-        {
-            throw new InvalidOperationException("Foreign pointer detected.");
-        }
+        var guardPrefix = header->GuardPrefix;
+        rawPtr = (nint)((byte*)header - guardPrefix);
+        reservedSize = header->ReservedSize;
+        expectedBackend = header->Backend;
 #endif
 
-        try
-        {
-            if (header->Magic != MagicValue)
-            {
-                throw new InvalidOperationException("Foreign pointer detected.");
-            }
-
-            header->Magic = FreedValue;
-        }
-        catch (AccessViolationException)
+        if (header->Magic != MagicValue)
         {
             throw new InvalidOperationException("Foreign pointer detected.");
         }
+
+        header->Magic = FreedValue;
 
         if (backend != expectedBackend)
         {
@@ -472,44 +458,54 @@ public static unsafe class NativeAllocator
 
         AlignToPage(ptr, size, out var alignedPtr, out var alignedLength);
 
-        var header = (AllocationHeader*)((byte*)ptr - HeaderSize);
-
-        if (header->GuardPrefix != 0 || header->GuardSuffix != 0)
+        // Before accessing the header (ptr - HeaderSize), ensure that the read
+        // doesn't cross a page boundary backwards, which could result in an AccessViolation
+        // if ptr is an external page-aligned pointer.
+        if (((nuint)ptr % PageSize) >= HeaderSize)
         {
-            var start = (nuint)alignedPtr;
-            var end = start + alignedLength;
-            var basePtr = (nuint)((byte*)header - header->GuardPrefix);
-            var userStart = basePtr + header->GuardPrefix;
-            var userEnd = basePtr + header->ReservedSize - header->GuardSuffix;
+            var header = (AllocationHeader*)((byte*)ptr - HeaderSize);
 
-            if (start < userStart)
+            // Verify the magic value to ensure this memory was allocated by us
+            if (header->Magic == MagicValue)
             {
-                var delta = userStart - start;
-                if (delta >= alignedLength)
+                if (header->GuardPrefix != 0 || header->GuardSuffix != 0)
                 {
-                    return;
+                    var start = (nuint)alignedPtr;
+                    var end = start + alignedLength;
+                    var basePtr = (nuint)((byte*)header - header->GuardPrefix);
+                    var userStart = basePtr + header->GuardPrefix;
+                    var userEnd = basePtr + header->ReservedSize - header->GuardSuffix;
+
+                    if (start < userStart)
+                    {
+                        var delta = userStart - start;
+                        if (delta >= alignedLength)
+                        {
+                            return;
+                        }
+
+                        start = userStart;
+                        alignedPtr = (void*)start;
+                        alignedLength -= delta;
+                        end = start + alignedLength;
+                    }
+
+                    if (end > userEnd)
+                    {
+                        var delta = end - userEnd;
+                        if (delta >= alignedLength)
+                        {
+                            return;
+                        }
+
+                        alignedLength -= delta;
+                    }
+
+                    if (alignedLength == 0)
+                    {
+                        return;
+                    }
                 }
-
-                start = userStart;
-                alignedPtr = (void*)start;
-                alignedLength -= delta;
-                end = start + alignedLength;
-            }
-
-            if (end > userEnd)
-            {
-                var delta = end - userEnd;
-                if (delta >= alignedLength)
-                {
-                    return;
-                }
-
-                alignedLength -= delta;
-            }
-
-            if (alignedLength == 0)
-            {
-                return;
             }
         }
 
