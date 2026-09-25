@@ -1,8 +1,10 @@
 using System;
+using System.Buffers;
 using System.Collections;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text;
 using SharpArena.Allocators;
 
 namespace SharpArena.Collections;
@@ -15,6 +17,7 @@ internal unsafe struct ArenaSetHeader
 {
     public int Count;
     public int Capacity; // Must be power of 2
+    public int GrowThreshold; // Count at/above which the table grows before the next insert; always < Capacity
     public int* Buckets; // 1-based indices (0 = empty)
     public void* Entries; // Contiguous T*
 }
@@ -34,6 +37,15 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
 
     private const float LoadFactor = 0.7f;
 
+    // A table with fewer than 4 buckets fills up completely under LoadFactor rounding, which
+    // turns a lookup miss in FindBucket into an infinite loop since it never finds an empty
+    // bucket to stop at.
+    private const int MinCapacity = 4;
+
+    // Bounds the `capacity <<= 1` doubling loop below so it can never overflow into 0 or negative
+    // and spin forever when a caller passes an enormous initialCapacity.
+    private const int MaxCapacity = 1 << 30;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="ArenaSet{T}"/> struct.
     /// </summary>
@@ -44,14 +56,36 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         _arena = arena ?? throw new ArgumentNullException(nameof(arena));
         _generation = arena.CurrentGeneration;
 
-        var capacity = 1;
+        if (initialCapacity < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(initialCapacity));
+        }
+
+        if (initialCapacity > MaxCapacity)
+        {
+            throw new ArgumentOutOfRangeException(nameof(initialCapacity), $"initialCapacity must not exceed {MaxCapacity}.");
+        }
+
+        var capacity = MinCapacity;
         while (capacity < initialCapacity) capacity <<= 1;
 
         _header = (ArenaSetHeader*)arena.Alloc((nuint)sizeof(ArenaSetHeader), align: 8);
         _header->Count = 0;
         _header->Capacity = capacity;
+        _header->GrowThreshold = ComputeGrowThreshold(capacity);
 
         AllocateTable(capacity);
+    }
+
+    /// <summary>
+    /// Computes the count at/above which the table must grow before the next insert, so that at
+    /// least one bucket is always guaranteed to be empty (otherwise a lookup miss never terminates).
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int ComputeGrowThreshold(int capacity)
+    {
+        int threshold = (int)((long)capacity * 7 / 10);
+        return threshold >= capacity ? capacity - 1 : threshold;
     }
 
     private void AllocateTable(int capacity)
@@ -122,17 +156,18 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     {
         CheckAlive();
 
-        if (_header->Count >= _header->Capacity * LoadFactor)
-        {
-            Grow();
-        }
-
         var bucketIdx = FindBucket(item);
         var entryIdxPlusOne = _header->Buckets[bucketIdx];
-        
+
         if (entryIdxPlusOne != 0)
         {
             return false;
+        }
+
+        if (_header->Count >= _header->GrowThreshold)
+        {
+            Grow();
+            bucketIdx = FindBucket(item);
         }
 
         var newEntryIdx = _header->Count++;
@@ -144,22 +179,28 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     private void Grow()
     {
         var oldCap = _header->Capacity;
+        if (oldCap >= MaxCapacity)
+        {
+            throw new InvalidOperationException("ArenaSet capacity overflow.");
+        }
+
         var newCap = oldCap * 2;
         var oldEntries = (T*)_header->Entries;
         var count = _header->Count;
 
-        var newBucketsSize = (nuint)newCap * sizeof(int);
+        var newBucketsSize = (nuint)newCap * (nuint)sizeof(int);
         var newEntriesSize = (nuint)newCap * (nuint)sizeof(T);
 
         var newBuckets = (int*)_arena.Alloc(newBucketsSize, align: 16);
         var newEntries = (T*)_arena.Alloc(newEntriesSize, align: (nuint)UnsafeHelpers.AlignOf<T>());
-        
+
         new Span<int>(newBuckets, newCap).Clear();
-        
+
         // Copy old entries to new entries (contiguous)
-        Unsafe.CopyBlockUnaligned(newEntries, oldEntries, (uint)(count * sizeof(T)));
+        Buffer.MemoryCopy(oldEntries, newEntries, newEntriesSize, (nuint)count * (nuint)sizeof(T));
 
         _header->Capacity = newCap;
+        _header->GrowThreshold = ComputeGrowThreshold(newCap);
         _header->Buckets = newBuckets;
         _header->Entries = newEntries;
 
@@ -203,35 +244,54 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     /// <returns><see langword="true"/> if <paramref name="item"/> is found in the <see cref="ArenaSet{T}"/>; otherwise, <see langword="false"/>.</returns>
     public readonly bool Contains(ReadOnlySpan<char> item)
     {
-        if (typeof(T) != typeof(ArenaUtf16String))
+        if (typeof(T) == typeof(ArenaUtf16String))
         {
-            return false;
+            CheckAlive();
+
+            var capacity = _header->Capacity;
+            var buckets = _header->Buckets;
+            var entries = (ArenaUtf16String*)_header->Entries;
+            var mask = (uint)capacity - 1;
+            var hash = Hashing.HashString(item);
+            var index = hash & mask;
+
+            while (true)
+            {
+                var entryIdxPlusOne = buckets[index];
+                if (entryIdxPlusOne == 0)
+                {
+                    return false;
+                }
+
+                if (entries[entryIdxPlusOne - 1].Equals(item))
+                {
+                    return true;
+                }
+
+                index = (index + 1) & mask;
+            }
         }
 
-        CheckAlive();
-        
-        var capacity = _header->Capacity;
-        var buckets = _header->Buckets;
-        var entries = (ArenaUtf16String*)_header->Entries;
-        var mask = (uint)capacity - 1;
-        var hash = Hashing.HashString(item);
-        var index = hash & mask;
-
-        while (true)
+        if (typeof(T) == typeof(ArenaUtf8String))
         {
-            var entryIdxPlusOne = buckets[index];
-            if (entryIdxPlusOne == 0)
+            // Cross-encoding lookup: the set stores UTF-8, the caller has UTF-16 — convert once
+            // instead of silently reporting no match, mirroring ArenaDictionary's behavior.
+            CheckAlive();
+            int maxBytes = Encoding.UTF8.GetMaxByteCount(item.Length);
+            byte[]? rented = null;
+            Span<byte> buffer = maxBytes <= 512 ? stackalloc byte[512] : (rented = ArrayPool<byte>.Shared.Rent(maxBytes));
+            try
             {
-                return false;
+                int written = Encoding.UTF8.GetBytes(item, buffer);
+                return Contains(buffer.Slice(0, written));
             }
-
-            if (entries[entryIdxPlusOne - 1].Equals(item))
+            finally
             {
-                return true;
+                if (rented != null) ArrayPool<byte>.Shared.Return(rented);
             }
-
-            index = (index + 1) & mask;
         }
+
+        throw new NotSupportedException($"{typeof(T)} does not support lookup by {nameof(ReadOnlySpan<char>)}.");
     }
 
     /// <summary>
@@ -241,35 +301,54 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     /// <returns><see langword="true"/> if <paramref name="item"/> is found in the <see cref="ArenaSet{T}"/>; otherwise, <see langword="false"/>.</returns>
     public readonly bool Contains(ReadOnlySpan<byte> item)
     {
-        if (typeof(T) != typeof(ArenaUtf8String))
+        if (typeof(T) == typeof(ArenaUtf8String))
         {
-            return false;
+            CheckAlive();
+
+            var capacity = _header->Capacity;
+            var buckets = _header->Buckets;
+            var entries = (ArenaUtf8String*)_header->Entries;
+            var mask = (uint)capacity - 1;
+            var hash = Hashing.HashUtf8(item);
+            var index = hash & mask;
+
+            while (true)
+            {
+                var entryIdxPlusOne = buckets[index];
+                if (entryIdxPlusOne == 0)
+                {
+                    return false;
+                }
+
+                if (entries[entryIdxPlusOne - 1].Equals(item))
+                {
+                    return true;
+                }
+
+                index = (index + 1) & mask;
+            }
         }
 
-        CheckAlive();
-
-        var capacity = _header->Capacity;
-        var buckets = _header->Buckets;
-        var entries = (ArenaUtf8String*)_header->Entries;
-        var mask = (uint)capacity - 1;
-        var hash = Hashing.HashUtf8(item);
-        var index = hash & mask;
-
-        while (true)
+        if (typeof(T) == typeof(ArenaUtf16String))
         {
-            var entryIdxPlusOne = buckets[index];
-            if (entryIdxPlusOne == 0)
+            // Cross-encoding lookup: the set stores UTF-16, the caller has UTF-8 — convert once
+            // instead of silently reporting no match, mirroring ArenaDictionary's behavior.
+            CheckAlive();
+            int maxChars = Encoding.UTF8.GetMaxCharCount(item.Length);
+            char[]? rented = null;
+            Span<char> buffer = maxChars <= 512 ? stackalloc char[512] : (rented = ArrayPool<char>.Shared.Rent(maxChars));
+            try
             {
-                return false;
+                int written = Encoding.UTF8.GetChars(item, buffer);
+                return Contains(buffer.Slice(0, written));
             }
-
-            if (entries[entryIdxPlusOne - 1].Equals(item))
+            finally
             {
-                return true;
+                if (rented != null) ArrayPool<char>.Shared.Return(rented);
             }
-
-            index = (index + 1) & mask;
         }
+
+        throw new NotSupportedException($"{typeof(T)} does not support lookup by {nameof(ReadOnlySpan<byte>)}.");
     }
 
     /// <summary>
@@ -308,36 +387,45 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     }
 
     /// <summary>
-    /// Reduces memory usage to the actual count and optimizes the hash table.
+    /// Shrinks the logical capacity of the hash table down to fit its current contents and
+    /// rebuilds the bucket index, which improves probe locality.
     /// </summary>
+    /// <remarks>
+    /// This does not reduce the arena's actual memory footprint: the arena is a bump allocator
+    /// with no general free(), so the previous buckets/entries buffers stay allocated (and
+    /// unreachable) in the segment they came from. This can make <see cref="ArenaAllocator.AllocatedBytes"/>
+    /// go up rather than down. Call this to speed up future lookups after a burst of inserts
+    /// followed by removals-via-<see cref="Clear"/>, not to reclaim memory.
+    /// </remarks>
     public void TrimExcess()
     {
         CheckAlive();
         var count = _header->Count;
         if (count == 0)
         {
-            _header->Capacity = 1;
-            AllocateTable(1);
+            _header->Capacity = MinCapacity;
+            _header->GrowThreshold = ComputeGrowThreshold(MinCapacity);
+            AllocateTable(MinCapacity);
             return;
         }
 
-        var newCap = 1;
-        float target = count / LoadFactor;
-        while (newCap < target) newCap <<= 1;
-        
+        var newCap = MinCapacity;
+        while ((long)newCap * 7 / 10 < count) newCap <<= 1;
+
         if (newCap >= _header->Capacity)
         {
             return;
         }
 
         var oldEntries = (T*)_header->Entries;
-        var newBuckets = (int*)_arena.Alloc((nuint)newCap * sizeof(int), align: 16);
+        var newBuckets = (int*)_arena.Alloc((nuint)newCap * (nuint)sizeof(int), align: 16);
         var newEntries = (T*)_arena.Alloc((nuint)newCap * (nuint)sizeof(T), align: (nuint)UnsafeHelpers.AlignOf<T>());
-        
+
         new Span<int>(newBuckets, newCap).Clear();
-        Unsafe.CopyBlockUnaligned(newEntries, oldEntries, (uint)(count * sizeof(T)));
+        Buffer.MemoryCopy(oldEntries, newEntries, (nuint)newCap * (nuint)sizeof(T), (nuint)count * (nuint)sizeof(T));
 
         _header->Capacity = newCap;
+        _header->GrowThreshold = ComputeGrowThreshold(newCap);
         _header->Buckets = newBuckets;
         _header->Entries = newEntries;
 
@@ -360,14 +448,16 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
     /// <summary>
     /// Returns an enumerator that iterates through the <see cref="ArenaSet{T}"/>.
     /// </summary>
-    /// <returns>A <see cref="IEnumerator{T}"/> for the <see cref="ArenaSet{T}"/>.</returns>
-    public readonly IEnumerator<T> GetEnumerator() => new Enumerator(this);
+    /// <returns>A struct enumerator for the <see cref="ArenaSet{T}"/>. A <c>foreach</c> loop binds to this
+    /// method directly and never boxes, unlike the <see cref="IEnumerable{T}"/> interface below.</returns>
+    public readonly Enumerator GetEnumerator() => new Enumerator(this);
+    readonly IEnumerator<T> IEnumerable<T>.GetEnumerator() => GetEnumerator();
     readonly IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
     /// <summary>
     /// Enumerates the elements of an <see cref="ArenaSet{T}"/>.
     /// </summary>
-    private struct Enumerator : IEnumerator<T>
+    public struct Enumerator : IEnumerator<T>
     {
         private readonly ArenaSet<T> _set;
         private int _index;
@@ -464,17 +554,29 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         }
 
         CheckAlive();
-        var otherCount = 0;
-        foreach (var item in other)
-        {
-            if (!Contains(item))
-            {
-                return false;
-            }
 
-            otherCount++;
+        // Duplicates in `other` must not be counted more than once — {1,2}.IsProperSupersetOf([1,1])
+        // is true (distinct count 1 < 2), which a raw per-item counter would get wrong.
+        int distinctCount;
+        if (other is ArenaSet<T> arenaSet)
+        {
+            foreach (var item in arenaSet)
+            {
+                if (!Contains(item)) return false;
+            }
+            distinctCount = arenaSet.Count;
         }
-        return Count > otherCount;
+        else
+        {
+            var otherSet = new HashSet<T>(other);
+            foreach (var item in otherSet)
+            {
+                if (!Contains(item)) return false;
+            }
+            distinctCount = otherSet.Count;
+        }
+
+        return Count > distinctCount;
     }
 
     /// <summary>
@@ -557,17 +659,29 @@ public unsafe struct ArenaSet<T> : ISet<T>, IReadOnlyCollection<T>
         }
 
         CheckAlive();
-        var otherCount = 0;
-        foreach (var item in other)
-        {
-            if (!Contains(item))
-            {
-                return false;
-            }
 
-            otherCount++;
+        // Duplicates in `other` must not be counted more than once — {1}.SetEquals([1,1]) is true,
+        // since as sets {1} and {1,1} are the same, which a raw per-item counter would get wrong.
+        int distinctCount;
+        if (other is ArenaSet<T> arenaSet)
+        {
+            foreach (var item in arenaSet)
+            {
+                if (!Contains(item)) return false;
+            }
+            distinctCount = arenaSet.Count;
         }
-        return Count == otherCount;
+        else
+        {
+            var otherSet = new HashSet<T>(other);
+            foreach (var item in otherSet)
+            {
+                if (!Contains(item)) return false;
+            }
+            distinctCount = otherSet.Count;
+        }
+
+        return Count == distinctCount;
     }
 
     /// <summary>Not supported.</summary>

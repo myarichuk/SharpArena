@@ -176,6 +176,12 @@ public readonly unsafe struct ArenaUtf16String : IEquatable<ArenaUtf16String>
             bytesWritten = System.Text.Encoding.UTF8.GetBytes(srcPtr, span.Length, dest, (int)maxByteCount);
         }
 
+        // GetMaxByteCount's worst case (3 bytes per UTF-16 unit) is rarely hit in practice, so the
+        // allocation above is usually oversized. Since `dest` is still the tail allocation of the
+        // arena's current segment at this point, shrink it back to what was actually written
+        // instead of leaving the difference permanently wasted.
+        arena.TryResizeInPlace(dest, maxByteCount, (nuint)bytesWritten);
+
         return new ArenaUtf8String(arena, dest, bytesWritten);
     }
 
@@ -240,14 +246,17 @@ public readonly unsafe struct ArenaUtf16String : IEquatable<ArenaUtf16String>
             return default;
         }
 
+        // Cloning rather than returning the operand as-is guarantees the result always lives in
+        // `arena`, as documented — returning the operand directly could hand back a string that
+        // lives in a different arena than the one the caller just asked to allocate into.
         if (left.IsEmpty)
         {
-            return right;
+            return Clone(right.AsSpan(), arena);
         }
 
         if (right.IsEmpty)
         {
-            return left;
+            return Clone(left.AsSpan(), arena);
         }
 
         if ((long)(uint)left._len + (long)(uint)right._len > int.MaxValue)
@@ -256,12 +265,18 @@ public readonly unsafe struct ArenaUtf16String : IEquatable<ArenaUtf16String>
         }
 
         var newLen = left._len + right._len;
-        var byteCount = (nuint)newLen * (nuint)sizeof(char);
+
+        // Byte sizes are computed in `nuint` throughout, rather than `int`/`uint`, which would
+        // wrap for a multi-gigabyte-character string despite the length check above only
+        // bounding the character count, not the resulting byte count.
+        nuint leftBytes = (nuint)(uint)left._len * (nuint)sizeof(char);
+        nuint rightBytes = (nuint)(uint)right._len * (nuint)sizeof(char);
+        nuint byteCount = leftBytes + rightBytes;
 
         var dest = (char*)arena.Alloc(byteCount, align: (nuint)UnsafeHelpers.AlignOf<char>());
 
-        Unsafe.CopyBlockUnaligned(dest, left._ptr, (uint)(left._len * sizeof(char)));
-        Unsafe.CopyBlockUnaligned(dest + left._len, right._ptr, (uint)(right._len * sizeof(char)));
+        Buffer.MemoryCopy(left._ptr, dest, (long)leftBytes, (long)leftBytes);
+        Buffer.MemoryCopy(right._ptr, (byte*)dest + leftBytes, (long)rightBytes, (long)rightBytes);
 
         return new ArenaUtf16String(arena, dest, newLen);
     }

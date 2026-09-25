@@ -68,7 +68,10 @@
 #if NET8_0_OR_GREATER
     private ArenaAllocator _arena = new ArenaAllocator(backend: NativeAllocatorBackend.DotNetUnmanaged);
 #else
-    private ArenaAllocator _arena = new ArenaAllocator(backend: NativeAllocatorBackend.NativeMemory); // will default to DotNetUnmanaged fallback or PlatformInvoke internally depending on SharpArena version
+    // NativeAllocatorBackend has no NativeMemory member — NativeMemory.Alloc/Free is a .NET 6+ API
+    // that DotNetUnmanaged uses internally only when compiled for NET8_0_OR_GREATER, so older
+    // target frameworks fall back to the P/Invoke-based backend instead.
+    private ArenaAllocator _arena = new ArenaAllocator(backend: NativeAllocatorBackend.PlatformInvoke);
 #endif
 
     public void Dispose()

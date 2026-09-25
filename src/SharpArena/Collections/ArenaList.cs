@@ -51,7 +51,7 @@ public unsafe struct ArenaList<T>
     /// <param name="initialCapacity">Initial number of items that can be stored without growing.</param>
     public ArenaList(ArenaAllocator arena, int initialCapacity = 16)
     {
-        _arena = arena;
+        _arena = arena ?? throw new ArgumentNullException(nameof(arena));
         _generation = arena.CurrentGeneration;
         
         if (initialCapacity <= 0)
@@ -157,17 +157,34 @@ public unsafe struct ArenaList<T>
         CheckAliveThrowIfNot();
         if (span.IsEmpty) return;
 
-        EnsureCapacity(_header->Count + span.Length);
+        // Count + span.Length is computed in `long` first: as two `int`s, it can overflow to a
+        // negative number, which would make EnsureCapacity below a no-op (capacity already
+        // "exceeds" a negative minimum) while the copy below still writes span.Length elements —
+        // straight past the end of the buffer.
+        long required = (long)_header->Count + span.Length;
+        if (required > int.MaxValue)
+        {
+            throw new OverflowException("ArenaList length exceeds the maximum supported element count.");
+        }
+
+        EnsureCapacity((int)required);
+
+        // Byte offsets/lengths are computed in `ulong` rather than `uint`, which would wrap for
+        // buffers larger than 4 GB.
+        ulong destOffsetBytes = (ulong)(uint)_header->Count * (ulong)sizeof(T);
+        ulong copyBytes = (ulong)(uint)span.Length * (ulong)sizeof(T);
+        ulong capacityBytes = (ulong)(uint)_header->Capacity * (ulong)sizeof(T);
 
         fixed (T* src = span)
         {
-            Unsafe.CopyBlockUnaligned(
-                (byte*)_header->Data + (uint)_header->Count * (uint)sizeof(T),
-                src,
-                (uint)span.Length * (uint)sizeof(T));
+            Buffer.MemoryCopy(
+                source: src,
+                destination: (byte*)_header->Data + destOffsetBytes,
+                destinationSizeInBytes: capacityBytes - destOffsetBytes,
+                sourceBytesToCopy: copyBytes);
         }
 
-        _header->Count += span.Length;
+        _header->Count = (int)required;
     }
 
     /// <summary>
@@ -214,24 +231,34 @@ public unsafe struct ArenaList<T>
         if (newCap == _header->Capacity) return;
 
         ulong byteCount = (ulong)(uint)newCap * (ulong)sizeof(T);
-        ulong oldByteCount = (ulong)(uint)_header->Count * (ulong)sizeof(T);
+        ulong oldCapacityBytes = (ulong)(uint)_header->Capacity * (ulong)sizeof(T);
 
         if (byteCount != (ulong)(nuint)byteCount)
         {
             throw new OutOfMemoryException("ArenaList capacity exceeds addressable memory.");
         }
 
+        // If the current buffer is still the tail allocation of the arena's current segment,
+        // both growing and shrinking (TrimExcess) can happen in place, without a copy — and
+        // without leaking the old buffer's space the way a fresh Alloc + copy would.
+        if (_arena.TryResizeInPlace(_header->Data, (nuint)oldCapacityBytes, (nuint)byteCount))
+        {
+            _header->Capacity = newCap;
+            return;
+        }
+
         var newPtr = _arena.Alloc(
             (nuint)byteCount,
             align: (nuint)UnsafeHelpers.AlignOf<T>());
 
-        if (oldByteCount > 0)
+        ulong copyBytes = (ulong)(uint)_header->Count * (ulong)sizeof(T);
+        if (copyBytes > 0)
         {
             Buffer.MemoryCopy(
                 source: _header->Data,
                 destination: newPtr,
                 destinationSizeInBytes: byteCount,
-                sourceBytesToCopy: oldByteCount);
+                sourceBytesToCopy: copyBytes);
         }
 
         _header->Data = newPtr;

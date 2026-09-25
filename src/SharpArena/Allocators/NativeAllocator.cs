@@ -85,6 +85,8 @@ public static unsafe class NativeAllocator
     }
 
     private static readonly bool IsWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+    private static readonly bool IsMacOS = RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
+    private static readonly int MapAnonymousFlag = IsMacOS ? Native.MAP_ANONYMOUS_MACOS : Native.MAP_ANONYMOUS_LINUX;
 
     // ConcurrentDictionary ensures async/thread safety
 #if DEBUG
@@ -197,7 +199,7 @@ public static unsafe class NativeAllocator
             _ when IsWindows
                 => (void*)Native.VirtualAlloc(0, alignedTotal, Native.MEM_RESERVE | Native.MEM_COMMIT, Native.PAGE_READWRITE),
             _ => (void*)Native.mmap(IntPtr.Zero, alignedTotal, Native.PROT_READ | Native.PROT_WRITE,
-                                    Native.MAP_PRIVATE | Native.MAP_ANONYMOUS, -1, 0),
+                                    Native.MAP_PRIVATE | MapAnonymousFlag, -1, 0),
         };
 
         if (backend is NativeAllocatorBackend.PlatformInvoke && IsMmapFailure(rawPtr))
@@ -259,59 +261,70 @@ public static unsafe class NativeAllocator
 
         var header = (AllocationHeader*)((byte*)userPtr - HeaderSize);
 
+        if (backend is NativeAllocatorBackend.PlatformInvoke)
+        {
+            // The header sits immediately before user data on the same page. If the allocation
+            // was made with ReadOnly/NoAccess protection, that page covers the header too, and
+            // touching header fields below would raise an uncatchable AccessViolationException
+            // and take the process down with it. Restoring read/write access first is a no-op
+            // when the page was never protected.
+            RestoreHeaderAccess(header);
+        }
+
 #if DEBUG
         var key = (nint)userPtr;
 
-        if (!_active.TryRemove(key, out var info))
+        // Look everything up and validate before mutating any shared state (Magic, _active):
+        // a half-applied free on an invalid pointer must leave bookkeeping untouched.
+        if (!_active.TryGetValue(key, out var info))
         {
             throw new InvalidOperationException("Double free or foreign pointer detected.");
+        }
+
+        if (header->Magic != MagicValue)
+        {
+            throw new InvalidOperationException("Foreign pointer detected.");
+        }
+
+        if (backend != info.Backend)
+        {
+            throw new InvalidOperationException("Allocator backend mismatch.");
         }
 
         var rawPtr = info.RawPtr;
         var reservedSize = info.ReservedSize;
         var expectedBackend = info.Backend;
+
+        // All validation passed — only now is it safe to mutate shared state.
+        _active.TryRemove(key, out _);
+        header->Magic = FreedValue;
 #else
-#if !DEBUG
+        // Best-effort, Debug-only double-free detection lives above via `_active`. In Release
+        // builds this syscall-based check is what we have; it can give a wrong answer once the
+        // address has been reused by an unrelated allocation, so treat it as a heuristic only.
         if (backend is NativeAllocatorBackend.PlatformInvoke && IsPointerFreed(userPtr))
         {
             throw new InvalidOperationException("Double free or foreign pointer detected.");
         }
-#endif
-        nint rawPtr = 0;
-        nuint reservedSize = 0;
-        NativeAllocatorBackend expectedBackend = backend;
 
-        try
-        {
-            var guardPrefix = header->GuardPrefix;
-            rawPtr = (nint)((byte*)header - guardPrefix);
-            reservedSize = header->ReservedSize;
-            expectedBackend = header->Backend;
-        }
-        catch (AccessViolationException)
+        if (header->Magic != MagicValue)
         {
             throw new InvalidOperationException("Foreign pointer detected.");
         }
-#endif
 
-        try
-        {
-            if (header->Magic != MagicValue)
-            {
-                throw new InvalidOperationException("Foreign pointer detected.");
-            }
-
-            header->Magic = FreedValue;
-        }
-        catch (AccessViolationException)
-        {
-            throw new InvalidOperationException("Foreign pointer detected.");
-        }
+        var guardPrefix = header->GuardPrefix;
+        var rawPtr = (nint)((byte*)header - guardPrefix);
+        var reservedSize = header->ReservedSize;
+        var expectedBackend = header->Backend;
 
         if (backend != expectedBackend)
         {
             throw new InvalidOperationException("Allocator backend mismatch.");
         }
+
+        // All validation passed — only now is it safe to mutate shared state.
+        header->Magic = FreedValue;
+#endif
 
         switch (expectedBackend)
         {
@@ -358,6 +371,29 @@ public static unsafe class NativeAllocator
         var end = AlignUp(address + length, PageSize);
         alignedPtr = (void*)start;
         alignedLength = end - start;
+    }
+
+    /// <summary>
+    /// Restores read/write access to the page(s) backing an allocation header. The header sits
+    /// immediately before user data, so ReadOnly/NoAccess protection applied to the user data can
+    /// cover the header's page too. This makes touching header fields safe again; it is a no-op,
+    /// not an error, when the page was never protected in the first place.
+    /// </summary>
+    private static void RestoreHeaderAccess(AllocationHeader* header)
+    {
+        AlignToPage(header, (nuint)sizeof(AllocationHeader), out var alignedPtr, out var alignedLength);
+
+        // Best-effort: these are plain syscalls that validate the address themselves rather than
+        // dereferencing it, so a bogus `header` (foreign/garbage pointer) fails safely here and is
+        // still caught by the Magic check that follows, instead of crashing the process.
+        if (IsWindows)
+        {
+            Native.VirtualProtect((nint)alignedPtr, alignedLength, Native.PAGE_READWRITE, out _);
+        }
+        else
+        {
+            Native.mprotect((IntPtr)alignedPtr, alignedLength, Native.PROT_READ | Native.PROT_WRITE);
+        }
     }
 
     private static nuint AlignUp(nuint value, nuint alignment)
@@ -474,6 +510,11 @@ public static unsafe class NativeAllocator
 
         var header = (AllocationHeader*)((byte*)ptr - HeaderSize);
 
+        // A prior call to this method may have left the header's own page NoAccess/ReadOnly
+        // protected (it sits on the same page as user data near the start of the allocation).
+        // Restore access before reading header fields below; a no-op when nothing was protected.
+        RestoreHeaderAccess(header);
+
         if (header->GuardPrefix != 0 || header->GuardSuffix != 0)
         {
             var start = (nuint)alignedPtr;
@@ -565,7 +606,12 @@ internal static partial class Native
 
     // POSIX constants
     public const int PROT_NONE = 0, PROT_READ = 1, PROT_WRITE = 2;
-    public const int MAP_PRIVATE = 2, MAP_ANONYMOUS = 0x20;
+    public const int MAP_PRIVATE = 2;
+
+    // MAP_ANONYMOUS has different bit values per OS: Linux/BSD use 0x20, macOS/Darwin uses 0x1000.
+    // Hard-coding the Linux value here made the PlatformInvoke backend fail on macOS.
+    public const int MAP_ANONYMOUS_LINUX = 0x20;
+    public const int MAP_ANONYMOUS_MACOS = 0x1000;
     public const int ENOMEM = 12;
     
 #if NET7_0_OR_GREATER
@@ -611,8 +657,10 @@ internal static partial class Native
     }
 
 #if NET7_0_OR_GREATER
+    // `off_t` is native-pointer-sized (32-bit on 32-bit Linux, 64-bit on 64-bit platforms and
+    // macOS), so it must be declared as `nint` here rather than a fixed 64-bit `long`.
     [LibraryImport("libc", SetLastError = true)]
-    public static partial IntPtr mmap(IntPtr addr, nuint length, int prot, int flags, int fd, long offset);
+    public static partial IntPtr mmap(IntPtr addr, nuint length, int prot, int flags, int fd, nint offset);
 
     [LibraryImport("libc", SetLastError = true)]
     public static partial int munmap(IntPtr addr, nuint length);
@@ -624,7 +672,7 @@ internal static partial class Native
     public static partial int mincore(IntPtr addr, nuint length, ref byte vec);
 #else
     [DllImport("libc", SetLastError = true, EntryPoint = "mmap")]
-    public static extern IntPtr mmap(IntPtr addr, nuint length, int prot, int flags, int fd, long offset);
+    public static extern IntPtr mmap(IntPtr addr, nuint length, int prot, int flags, int fd, nint offset);
 
     [DllImport("libc", SetLastError = true, EntryPoint = "munmap")]
     public static extern int munmap(IntPtr addr, nuint length);
