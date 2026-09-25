@@ -16,6 +16,7 @@ internal unsafe struct ArenaDictionaryHeader
 {
     public int Count;
     public int Capacity; // Must be power of 2
+    public int GrowThreshold; // Count at/above which the table grows before the next insert; always < Capacity
     public int* Buckets; // 1-based indices (0 = empty)
     public void* Keys;   // Contiguous TKey*
     public void* Values; // Contiguous TValue*
@@ -38,6 +39,16 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
 
     private const float LoadFactor = 0.7f;
 
+    // A table with fewer than 4 buckets fills up completely under LoadFactor rounding (e.g.
+    // capacity 1 or 2 means every bucket must be occupied before growth is even considered),
+    // which turns a lookup miss in FindBucket into an infinite loop since it never finds an
+    // empty bucket to stop at.
+    private const int MinCapacity = 4;
+
+    // Bounds the `capacity <<= 1` doubling loop below so it can never overflow into 0 or negative
+    // and spin forever when a caller passes an enormous initialCapacity.
+    private const int MaxCapacity = 1 << 30;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="ArenaDictionary{TKey, TValue}"/> struct.
     /// </summary>
@@ -48,14 +59,36 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
         _arena = arena ?? throw new ArgumentNullException(nameof(arena));
         _generation = arena.CurrentGeneration;
 
-        int capacity = 1;
+        if (initialCapacity < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(initialCapacity));
+        }
+
+        if (initialCapacity > MaxCapacity)
+        {
+            throw new ArgumentOutOfRangeException(nameof(initialCapacity), $"initialCapacity must not exceed {MaxCapacity}.");
+        }
+
+        int capacity = MinCapacity;
         while (capacity < initialCapacity) capacity <<= 1;
 
         _header = (ArenaDictionaryHeader*)arena.Alloc((nuint)sizeof(ArenaDictionaryHeader), align: 8);
         _header->Count = 0;
         _header->Capacity = capacity;
+        _header->GrowThreshold = ComputeGrowThreshold(capacity);
 
         AllocateTable(capacity);
+    }
+
+    /// <summary>
+    /// Computes the count at/above which the table must grow before the next insert, so that at
+    /// least one bucket is always guaranteed to be empty (otherwise a lookup miss never terminates).
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int ComputeGrowThreshold(int capacity)
+    {
+        int threshold = (int)((long)capacity * 7 / 10);
+        return threshold >= capacity ? capacity - 1 : threshold;
     }
 
     private void AllocateTable(int capacity)
@@ -161,14 +194,16 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     public bool TryAdd(TKey key, TValue value)
     {
         CheckAlive();
-        if (_header->Count >= _header->Capacity * LoadFactor)
-        {
-            Grow();
-        }
 
         int bucketIdx = FindBucket(key);
         int entryIdx = _header->Buckets[bucketIdx] - 1;
         if (entryIdx >= 0) return false;
+
+        if (_header->Count >= _header->GrowThreshold)
+        {
+            Grow();
+            bucketIdx = FindBucket(key);
+        }
 
         int newEntryIdx = _header->Count++;
         _header->Buckets[bucketIdx] = newEntryIdx + 1;
@@ -180,15 +215,17 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     private void AddOrUpdate(TKey key, TValue value)
     {
         CheckAlive();
-        if (_header->Count >= _header->Capacity * LoadFactor)
-        {
-            Grow();
-        }
 
         int bucketIdx = FindBucket(key);
         int entryIdx = _header->Buckets[bucketIdx] - 1;
         if (entryIdx < 0)
         {
+            if (_header->Count >= _header->GrowThreshold)
+            {
+                Grow();
+                bucketIdx = FindBucket(key);
+            }
+
             int newEntryIdx = _header->Count++;
             _header->Buckets[bucketIdx] = newEntryIdx + 1;
             ((TKey*)_header->Keys)[newEntryIdx] = key;
@@ -203,20 +240,26 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     private void Grow()
     {
         int oldCap = _header->Capacity;
+        if (oldCap >= MaxCapacity)
+        {
+            throw new InvalidOperationException("ArenaDictionary capacity overflow.");
+        }
+
         int newCap = oldCap * 2;
         int count = _header->Count;
         TKey* oldKeys = (TKey*)_header->Keys;
         TValue* oldValues = (TValue*)_header->Values;
 
-        int* newBuckets = (int*)_arena.Alloc((nuint)newCap * sizeof(int), align: 16);
+        int* newBuckets = (int*)_arena.Alloc((nuint)newCap * (nuint)sizeof(int), align: 16);
         TKey* newKeys = (TKey*)_arena.Alloc((nuint)newCap * (nuint)sizeof(TKey), align: (nuint)UnsafeHelpers.AlignOf<TKey>());
         TValue* newValues = (TValue*)_arena.Alloc((nuint)newCap * (nuint)sizeof(TValue), align: (nuint)UnsafeHelpers.AlignOf<TValue>());
 
         new Span<int>(newBuckets, newCap).Clear();
-        Unsafe.CopyBlockUnaligned(newKeys, oldKeys, (uint)(count * sizeof(TKey)));
-        Unsafe.CopyBlockUnaligned(newValues, oldValues, (uint)(count * sizeof(TValue)));
+        Buffer.MemoryCopy(oldKeys, newKeys, (nuint)newCap * (nuint)sizeof(TKey), (nuint)count * (nuint)sizeof(TKey));
+        Buffer.MemoryCopy(oldValues, newValues, (nuint)newCap * (nuint)sizeof(TValue), (nuint)count * (nuint)sizeof(TValue));
 
         _header->Capacity = newCap;
+        _header->GrowThreshold = ComputeGrowThreshold(newCap);
         _header->Buckets = newBuckets;
         _header->Keys = newKeys;
         _header->Values = newValues;
@@ -302,7 +345,7 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
             }
         }
 
-        return false;
+        throw new NotSupportedException($"{typeof(TKey)} does not support lookup by {nameof(ReadOnlySpan<char>)}.");
     }
 
     /// <summary>
@@ -362,7 +405,7 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
             }
         }
 
-        return false;
+        throw new NotSupportedException($"{typeof(TKey)} does not support lookup by {nameof(ReadOnlySpan<byte>)}.");
     }
 
     /// <summary>
@@ -455,8 +498,7 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
             }
         }
 
-        value = default;
-        return false;
+        throw new NotSupportedException($"{typeof(TKey)} does not support lookup by {nameof(ReadOnlySpan<char>)}.");
     }
 
     /// <summary>
@@ -527,8 +569,7 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
             }
         }
 
-        value = default;
-        return false;
+        throw new NotSupportedException($"{typeof(TKey)} does not support lookup by {nameof(ReadOnlySpan<byte>)}.");
     }
 
     /// <summary>
@@ -542,36 +583,45 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     }
 
     /// <summary>
-    /// Reduces memory usage and optimizes the hash table.
+    /// Shrinks the logical capacity of the hash table down to fit its current contents and
+    /// rebuilds the bucket index, which improves probe locality.
     /// </summary>
+    /// <remarks>
+    /// This does not reduce the arena's actual memory footprint: the arena is a bump allocator
+    /// with no general free(), so the previous buckets/keys/values buffers stay allocated (and
+    /// unreachable) in the segment they came from. This can make <see cref="ArenaAllocator.AllocatedBytes"/>
+    /// go up rather than down. Call this to speed up future lookups after a burst of inserts
+    /// followed by removals-via-<see cref="Clear"/>, not to reclaim memory.
+    /// </remarks>
     public void TrimExcess()
     {
         CheckAlive();
         int count = _header->Count;
         if (count == 0)
         {
-            _header->Capacity = 1;
-            AllocateTable(1);
+            _header->Capacity = MinCapacity;
+            _header->GrowThreshold = ComputeGrowThreshold(MinCapacity);
+            AllocateTable(MinCapacity);
             return;
         }
 
-        int newCap = 1;
-        float target = count / LoadFactor;
-        while (newCap < target) newCap <<= 1;
+        int newCap = MinCapacity;
+        while ((long)newCap * 7 / 10 < count) newCap <<= 1;
         if (newCap >= _header->Capacity) return;
 
         TKey* oldKeys = (TKey*)_header->Keys;
         TValue* oldValues = (TValue*)_header->Values;
 
-        int* newBuckets = (int*)_arena.Alloc((nuint)newCap * sizeof(int), align: 16);
+        int* newBuckets = (int*)_arena.Alloc((nuint)newCap * (nuint)sizeof(int), align: 16);
         TKey* newKeys = (TKey*)_arena.Alloc((nuint)newCap * (nuint)sizeof(TKey), align: (nuint)UnsafeHelpers.AlignOf<TKey>());
         TValue* newValues = (TValue*)_arena.Alloc((nuint)newCap * (nuint)sizeof(TValue), align: (nuint)UnsafeHelpers.AlignOf<TValue>());
 
         new Span<int>(newBuckets, newCap).Clear();
-        Unsafe.CopyBlockUnaligned(newKeys, oldKeys, (uint)(count * sizeof(TKey)));
-        Unsafe.CopyBlockUnaligned(newValues, oldValues, (uint)(count * sizeof(TValue)));
+        Buffer.MemoryCopy(oldKeys, newKeys, (nuint)newCap * (nuint)sizeof(TKey), (nuint)count * (nuint)sizeof(TKey));
+        Buffer.MemoryCopy(oldValues, newValues, (nuint)newCap * (nuint)sizeof(TValue), (nuint)count * (nuint)sizeof(TValue));
 
         _header->Capacity = newCap;
+        _header->GrowThreshold = ComputeGrowThreshold(newCap);
         _header->Buckets = newBuckets;
         _header->Keys = newKeys;
         _header->Values = newValues;
@@ -618,8 +668,10 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     /// <summary>
     /// Returns an enumerator that iterates through the <see cref="ArenaDictionary{TKey, TValue}"/>.
     /// </summary>
-    /// <returns>A <see cref="IEnumerator{KeyValuePair}"/> for the <see cref="ArenaDictionary{TKey, TValue}"/>.</returns>
-    public readonly IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator() => new Enumerator(this);
+    /// <returns>A struct enumerator for the <see cref="ArenaDictionary{TKey, TValue}"/>. A <c>foreach</c> loop binds to
+    /// this method directly and never boxes, unlike the <see cref="IEnumerable{T}"/> interface below.</returns>
+    public readonly Enumerator GetEnumerator() => new Enumerator(this);
+    readonly IEnumerator<KeyValuePair<TKey, TValue>> IEnumerable<KeyValuePair<TKey, TValue>>.GetEnumerator() => GetEnumerator();
     readonly IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
     /// <summary>
@@ -695,10 +747,11 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
             }
         }
         public bool Remove(TKey item) => throw new NotSupportedException();
-        public readonly IEnumerator<TKey> GetEnumerator() => new KeyEnumerator(_dict);
+        public readonly KeyEnumerator GetEnumerator() => new KeyEnumerator(_dict);
+        readonly IEnumerator<TKey> IEnumerable<TKey>.GetEnumerator() => GetEnumerator();
         readonly IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-        private struct KeyEnumerator : IEnumerator<TKey>
+        public struct KeyEnumerator : IEnumerator<TKey>
         {
             private readonly ArenaDictionary<TKey, TValue> _dict;
             private int _index;
@@ -759,10 +812,11 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
             }
         }
         public bool Remove(TValue item) => throw new NotSupportedException();
-        public IEnumerator<TValue> GetEnumerator() => new ValueEnumerator(_dict);
+        public ValueEnumerator GetEnumerator() => new ValueEnumerator(_dict);
+        IEnumerator<TValue> IEnumerable<TValue>.GetEnumerator() => GetEnumerator();
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-        private unsafe struct ValueEnumerator : IEnumerator<TValue>
+        public unsafe struct ValueEnumerator : IEnumerator<TValue>
         {
             private readonly ArenaDictionary<TKey, TValue> _dict;
             private int _index;

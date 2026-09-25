@@ -196,12 +196,23 @@ public readonly unsafe struct ArenaUtf8String : IEquatable<ArenaUtf8String>
     /// <returns>true if strings are equal, false otherwise</returns>
     public bool Equals(string? other)
     {
-        if (other == null)
+        // Null and "" both mean "no text" here, so both must compare equal to an empty/default
+        // ArenaUtf8String — treating them differently (as the previous `other == null` check did)
+        // made Equals(null) true but Equals("") false for the exact same underlying value.
+        if (string.IsNullOrEmpty(other))
         {
             return IsEmpty;
         }
 
         if (IsEmpty)
+        {
+            return false;
+        }
+
+        // A UTF-8 encoding is never shorter than the source UTF-16 string (every UTF-16 code unit
+        // costs at least one UTF-8 byte), so this rules out a mismatch before paying for the
+        // O(n) ASCII scan below.
+        if (_len < other.Length)
         {
             return false;
         }
@@ -277,9 +288,17 @@ public readonly unsafe struct ArenaUtf8String : IEquatable<ArenaUtf8String>
         Encoding.UTF8.GetChars(AsSpan(), destination);
 
     /// <inheritdoc />
-    public override bool Equals(object? obj) => 
-        obj is ArenaUtf8String @as && Equals(@as) ||
-        obj is string s && Equals(s);
+    /// <remarks>
+    /// Only compares against other <see cref="ArenaUtf8String"/> values. A <see cref="string"/>
+    /// branch was deliberately removed: <see cref="GetHashCode"/> hashes the UTF-8 bytes, which
+    /// does not match <see cref="string.GetHashCode()"/>, so accepting <see cref="string"/> here
+    /// would violate the Equals/GetHashCode contract (equal objects must hash equally) for any
+    /// caller that puts these values in a standard <see cref="Dictionary{TKey, TValue}"/> or
+    /// <see cref="HashSet{T}"/>. Use <see cref="Equals(string?)"/> directly to compare against a
+    /// managed string.
+    /// </remarks>
+    public override bool Equals(object? obj) =>
+        obj is ArenaUtf8String other && Equals(other);
 
     /// <inheritdoc />
     public override int GetHashCode()

@@ -79,9 +79,19 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
     /// <param name="blockSize">Initial block capacity.</param>
     public ArenaBlockList(ArenaAllocator arena, nuint blockSize = DefaultBlockSize)
     {
+        if (arena == null)
+        {
+            throw new ArgumentNullException(nameof(arena));
+        }
+
+        if (blockSize == 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(blockSize), "blockSize must be greater than zero.");
+        }
+
         _arena = arena;
         _generation = arena.CurrentGeneration;
-        
+
         var firstBlock = CreateBlock(arena, blockSize);
         _head = firstBlock;
 
@@ -107,7 +117,13 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
             throw new OutOfMemoryException("Capacity exceeds maximum addressable memory.");
         }
 
-        nuint headerSize = (nuint)sizeof(ArenaBlock<T>);
+        // sizeof(T) is not a valid alignment in general (it need not be a power of two, e.g. a
+        // 24-byte struct), and using the raw header size as the data offset can misalign Data
+        // for any T whose natural alignment exceeds the header's own alignment. Use the real
+        // natural alignment of T, and round the header up to it before placing Data.
+        nuint align = (nuint)UnsafeHelpers.AlignOf<T>();
+        nuint rawHeaderSize = (nuint)sizeof(ArenaBlock<T>);
+        nuint headerSize = (rawHeaderSize + align - 1) & ~(align - 1);
         nuint dataSize = capacity * (nuint)sizeof(T);
 
         if (max - headerSize < dataSize)
@@ -115,7 +131,7 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
             throw new OutOfMemoryException("Block size exceeds maximum addressable memory.");
         }
 
-        byte* mem = (byte*)arena.Alloc(headerSize + dataSize,  (nuint)Unsafe.SizeOf<T>());
+        byte* mem = (byte*)arena.Alloc(headerSize + dataSize, align);
         var block = (ArenaBlock<T>*)mem;
         block->Data = (T*)(mem + headerSize);
         block->Count = 0;
@@ -173,12 +189,31 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
         var current = _header->CurrentBlock;
         if (current->Count >= current->Capacity)
         {
-            var nextCapacity = current->Capacity * 2;
-            var newBlock = CreateBlock(_arena, nextCapacity);
-            current->Next = newBlock;
-            _header->CurrentBlock = newBlock;
-            _header->TotalCapacity += nextCapacity;
-            current = newBlock;
+            // Reuse an already-linked next block first — after Reset(), the chain from a
+            // previous fill is still there, and re-creating a block here would both leak the
+            // old one and double-count it into TotalCapacity.
+            var next = current->Next;
+            if (next == null)
+            {
+#if NET7_0_OR_GREATER
+                nuint maxCapacity = nuint.MaxValue;
+#else
+                nuint maxCapacity = unchecked((nuint)ulong.MaxValue);
+#endif
+                if (current->Capacity > maxCapacity / 2)
+                {
+                    throw new OutOfMemoryException("ArenaBlockList block capacity overflow.");
+                }
+
+                var doubled = current->Capacity * 2;
+                var nextCapacity = doubled == 0 ? (nuint)1 : doubled;
+                next = CreateBlock(_arena, nextCapacity);
+                current->Next = next;
+                _header->TotalCapacity += nextCapacity;
+            }
+
+            _header->CurrentBlock = next;
+            current = next;
         }
 
         current->Data[current->Count++] = value;

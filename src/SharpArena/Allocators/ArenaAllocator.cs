@@ -11,21 +11,31 @@ namespace SharpArena.Allocators;
 /// </remarks>
 public unsafe class ArenaAllocator : IDisposable
 {
-    private static readonly nuint DefaultInitialSegmentSize = 64 * 1024;
     private static readonly nuint DefaultPageSize = (nuint)Environment.SystemPageSize;
+
+    // Process-wide generation counter. Every arena draws its generation stamp from this
+    // single counter (on construction, Reset, and Dispose) instead of starting at 0, so that
+    // two different arenas can never share a generation number — which would otherwise let
+    // IsAlive(otherArena) checks on strings/collections produce false positives across arenas.
+    // This is the one Interlocked operation in the whole library: it only runs on the
+    // construct/Reset/Dispose slow path, never on the hot Alloc path, so it does not
+    // compromise the single-threaded, lock-free allocation fast path described in the README.
+    private static int s_epoch;
 
     private ArenaSegment* _first;
     private ArenaSegment* _current;
+    private readonly nuint _initialSize;
     private readonly nuint _maxSegmentSize;
     private readonly NativeAllocatorBackend _backend;
     private bool _disposed;
-    private int _generation = 0;
-    
+    private int _generation;
+
     private nuint _peakBytes;
     private nuint _allocatedBytes;
 
     /// <summary>
-    /// Returns the current generation (incremented between Reset())
+    /// Returns the current generation. Changes on every <see cref="Reset"/> and on <see cref="Dispose()"/>,
+    /// so pointers, collections, and strings captured against a stale generation are detected as dead.
     /// </summary>
     public int CurrentGeneration => Volatile.Read(ref _generation);
 
@@ -57,9 +67,16 @@ public unsafe class ArenaAllocator : IDisposable
         nuint maxSize = 256 * 1024 * 1024,
         NativeAllocatorBackend backend = NativeAllocatorBackend.PlatformInvoke)
     {
+        if (maxSize < initialSize)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxSize), "maxSize must be greater than or equal to initialSize.");
+        }
+
+        _initialSize = initialSize == 0 ? 1 : initialSize;
         _maxSegmentSize = maxSize;
         _backend = backend;
-        _first = _current = AllocateSegment(initialSize);
+        _generation = Interlocked.Increment(ref s_epoch);
+        _first = _current = AllocateSegment(_initialSize);
     }
 
     /// <summary>
@@ -86,7 +103,11 @@ public unsafe class ArenaAllocator : IDisposable
             throw new ObjectDisposedException(nameof(ArenaAllocator));
         }
 
-        align = AlignUp(align, (nuint)IntPtr.Size);
+        // Alignment must be a power of two for the bit-mask math in ArenaSegment.TryAlloc to work.
+        // Round whatever was requested up to the nearest valid power of two instead of silently
+        // truncating it to a multiple (e.g. AlignUp(24, 8) == 24, which is not a power of two and
+        // produces incorrectly-aligned pointers).
+        align = RoundUpToPowerOfTwo(align < (nuint)IntPtr.Size ? (nuint)IntPtr.Size : align);
         var oldOffset = seg->Offset;
         if (seg->TryAlloc(size, align, out var ptr))
         {
@@ -114,16 +135,29 @@ public unsafe class ArenaAllocator : IDisposable
                 continue;
             }
 
-            var nextSize = NextSegmentSize(seg->Size, size);
-
-            if (nextSize < size)
+            // A fresh segment's usable region starts at `Base`, which itself sits past the
+            // native allocation header and the ArenaSegment header. Alignment padding on top
+            // of that can push the requested block past a segment sized for exactly `size`
+            // bytes. Size the new segment for `size + align - 1` so the allocation is
+            // guaranteed to fit regardless of where `Base` happens to land.
+            nuint required;
+            try
             {
-                nextSize = AlignUp(size, DefaultPageSize);
+                checked
+                {
+                    required = size + (align - 1);
+                }
             }
+            catch (OverflowException)
+            {
+                throw new OutOfMemoryException("Failed to allocate memory in arena; requested size and alignment overflow.");
+            }
+
+            var nextSize = NextSegmentSize(seg->Size, required);
 
             if (nextSize > _maxSegmentSize)
             {
-                nextSize = AlignUp(size, DefaultPageSize); // fallback if request > maxSegmentSize
+                nextSize = AlignUp(required, DefaultPageSize); // fallback if request > maxSegmentSize
             }
 
             var newSeg = AllocateSegment(nextSize);
@@ -132,19 +166,68 @@ public unsafe class ArenaAllocator : IDisposable
             seg = newSeg;
 
             oldOffset = seg->Offset;
-            if (seg->TryAlloc(size, align, out ptr))
+            if (!seg->TryAlloc(size, align, out ptr))
             {
-                _allocatedBytes += (seg->Offset - oldOffset);
-                return ptr;
+                // The segment was sized specifically to satisfy this request; failing here means
+                // the sizing math above is wrong, not that the arena is legitimately out of memory.
+                throw new InvalidOperationException(
+                    "Arena allocator invariant violated: a segment freshly allocated to satisfy this request failed to satisfy it.");
             }
 
-            if (nextSize == size)
-            {
-                throw new OutOfMemoryException("Failed to allocate memory in arena; request too large.");
-            }
+            _allocatedBytes += (seg->Offset - oldOffset);
+            return ptr;
         }
     }
 
+    /// <summary>
+    /// Attempts to grow or shrink an allocation in place, without copying, when <paramref name="ptr"/>
+    /// is the most recent allocation made from the arena's current segment (a classic bump-allocator
+    /// edge case: only the tail allocation can be resized without disturbing anything after it).
+    /// </summary>
+    /// <param name="ptr">Pointer previously returned by <see cref="Alloc"/>.</param>
+    /// <param name="oldSize">The size that was originally requested for <paramref name="ptr"/>.</param>
+    /// <param name="newSize">The desired new size.</param>
+    /// <returns>
+    /// <see langword="true"/> if the allocation was resized in place; <see langword="false"/> if
+    /// <paramref name="ptr"/> is not the tail allocation of the current segment, or the new size
+    /// does not fit — the caller must then fall back to a fresh <see cref="Alloc"/> and copy.
+    /// </returns>
+    public bool TryResizeInPlace(void* ptr, nuint oldSize, nuint newSize)
+    {
+        if (_disposed)
+        {
+            throw new ObjectDisposedException(nameof(ArenaAllocator));
+        }
+
+        if (ptr == null)
+        {
+            return false;
+        }
+
+        var seg = _current;
+        if (seg == null || (byte*)ptr < seg->Base)
+        {
+            return false;
+        }
+
+        var allocOffset = (nuint)((byte*)ptr - seg->Base);
+        if (allocOffset > seg->Size - oldSize || allocOffset + oldSize != seg->Offset)
+        {
+            // Not the tail allocation of the current segment.
+            return false;
+        }
+
+        if (newSize > seg->Size - allocOffset)
+        {
+            return false;
+        }
+
+        seg->Offset = allocOffset + newSize;
+        _allocatedBytes = newSize >= oldSize
+            ? _allocatedBytes + (newSize - oldSize)
+            : _allocatedBytes - (oldSize - newSize);
+        return true;
+    }
 
     private ArenaSegment* AllocateSegment(nuint requestSize)
     {
@@ -167,7 +250,7 @@ public unsafe class ArenaAllocator : IDisposable
     private nuint NextSegmentSize(nuint prev, nuint req)
     {
         var doubled = prev == 0
-            ? DefaultInitialSegmentSize
+            ? _initialSize
             : prev > _maxSegmentSize / 2
                 ? _maxSegmentSize
                 : prev * 2;
@@ -250,7 +333,7 @@ public unsafe class ArenaAllocator : IDisposable
 
         _allocatedBytes = 0;
         _current = _first;
-        _generation++;
+        _generation = Interlocked.Increment(ref s_epoch);
     }
 
     /// <summary>
@@ -270,13 +353,34 @@ public unsafe class ArenaAllocator : IDisposable
 
         _disposed = true;
 
+        // Bump the generation before freeing memory so any ArenaUtf16String/ArenaUtf8String
+        // or collection still holding a pre-dispose generation snapshot fails CheckAliveThrowIfNot
+        // instead of dereferencing freed memory.
+        _generation = Interlocked.Increment(ref s_epoch);
+
         var head = _first;
         _first = _current = null;
 
         while (head != null)
         {
             var next = head->Next;
-            NativeAllocator.Free(head, _backend);
+            if (isDisposing)
+            {
+                NativeAllocator.Free(head, _backend);
+            }
+            else
+            {
+                // On the finalizer thread, an exception here (e.g. a double-free or corruption
+                // check tripping) would go unhandled and terminate the process. Best-effort only.
+                try
+                {
+                    NativeAllocator.Free(head, _backend);
+                }
+                catch
+                {
+                    // Swallowed intentionally: see comment above.
+                }
+            }
             head = next;
         }
 

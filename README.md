@@ -115,7 +115,7 @@ Console.WriteLine(*ptr);
 > [!IMPORTANT]
 > **SharpArena is strictly NOT thread-safe.**
 
-To achieve maximum performance and zero overhead on the hot path, `ArenaAllocator` and its associated collections do not use any synchronization primitives (locks, interlocked operations, or volatile reads).
+To achieve maximum performance and zero overhead on the hot path, `ArenaAllocator` and its associated collections do not use any synchronization primitives (locks, interlocked operations, or volatile reads) on `Alloc` — the hot path. The one exception is generation stamping: `ArenaAllocator` draws its generation number from a single process-wide counter via `Interlocked.Increment` on construction, `Reset`, and `Dispose`, and reads it back with `Volatile.Read`. This runs only on that slow path (never per-`Alloc`) and exists so that two different arenas — including ones on different threads under the "one arena per thread" pattern below — can never be assigned the same generation number.
 
 - **One Arena Per Thread:** You should create a separate `ArenaAllocator` instance for each thread or use a `[ThreadStatic]` field.
 - **No Concurrent Access:** Do not call `Alloc`, `Reset`, or `Dispose` concurrently from multiple threads on the same instance.

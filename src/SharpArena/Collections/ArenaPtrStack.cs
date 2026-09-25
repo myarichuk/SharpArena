@@ -51,7 +51,7 @@ public readonly unsafe struct ArenaPtrStack<T>
             initialCapacity = 1;
         }
 
-        _arena = arena;
+        _arena = arena ?? throw new ArgumentNullException(nameof(arena));
         _generation = arena.CurrentGeneration;
 
         _header = (ArenaPtrStackHeader*)arena.Alloc(
