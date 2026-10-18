@@ -65,9 +65,15 @@ public class UnsafeHelpersTests
     public void AlignOf_DetectsAlignmentAboveIntPtrSize_ForRealSimdTypes()
     {
         // Vector128<T>/Vector256<T> are the rare unmanaged types whose actual CLR-computed
-        // alignment genuinely exceeds IntPtr.Size (16 and 32 bytes respectively, matching their
-        // SIMD register width) — this is the one case the IntPtr.Size floor must not swallow.
+        // alignment genuinely exceeds IntPtr.Size — this is the one case the IntPtr.Size floor
+        // must not swallow. Vector128<T> is 16-byte aligned on every 64-bit platform. The CLR
+        // only gives Vector256<T> its full 32-byte register alignment on x86/x64 (where AVX
+        // exists); on arm64 there is no 256-bit register, so it is laid out as two Vector128s
+        // and aligned to 16.
+        var isX86 = RuntimeInformation.ProcessArchitecture is Architecture.X64 or Architecture.X86;
+        var expectedVector256Alignment = isX86 ? 32 : 16;
+
         Assert.Equal(16, UnsafeHelpers.AlignOf<Vector128<byte>>());
-        Assert.Equal(32, UnsafeHelpers.AlignOf<Vector256<byte>>());
+        Assert.Equal(expectedVector256Alignment, UnsafeHelpers.AlignOf<Vector256<byte>>());
     }
 }
