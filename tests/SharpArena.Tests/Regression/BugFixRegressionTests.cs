@@ -446,4 +446,149 @@ public unsafe class BugFixRegressionTests
         result.IsAlive(arenaB).Should().BeTrue("Concatenate documents that its result lives in the arena passed to it");
         result.IsAlive(arenaA).Should().BeFalse();
     }
+
+    // ---- Span-based TryGetValue must report a miss, not throw NotSupportedException ----
+
+    [Fact]
+    public void ArenaDictionary_Utf16Key_SpanTryGetValue_Miss_ReturnsFalse()
+    {
+        using var arena = new ArenaAllocator();
+        var dict = new ArenaDictionary<ArenaUtf16String, int>(arena);
+        dict.TryAdd(ArenaUtf16String.Clone("present", arena), 1).Should().BeTrue();
+
+        dict.TryGetValue("missing".AsSpan(), out var byChars).Should().BeFalse();
+        byChars.Should().Be(0);
+
+        dict.TryGetValue("missing"u8, out var byBytes).Should().BeFalse();
+        byBytes.Should().Be(0);
+
+        // Sanity: hits still work through both overloads.
+        dict.TryGetValue("present".AsSpan(), out var hit1).Should().BeTrue();
+        hit1.Should().Be(1);
+        dict.TryGetValue("present"u8, out var hit2).Should().BeTrue();
+        hit2.Should().Be(1);
+    }
+
+    [Fact]
+    public void ArenaDictionary_Utf8Key_SpanTryGetValue_Miss_ReturnsFalse()
+    {
+        using var arena = new ArenaAllocator();
+        var dict = new ArenaDictionary<ArenaUtf8String, int>(arena);
+        dict.TryAdd(ArenaUtf8String.Clone("present", arena), 1).Should().BeTrue();
+
+        dict.TryGetValue("missing".AsSpan(), out var byChars).Should().BeFalse();
+        byChars.Should().Be(0);
+
+        dict.TryGetValue("missing"u8, out var byBytes).Should().BeFalse();
+        byBytes.Should().Be(0);
+
+        dict.TryGetValue("present".AsSpan(), out var hit1).Should().BeTrue();
+        hit1.Should().Be(1);
+        dict.TryGetValue("present"u8, out var hit2).Should().BeTrue();
+        hit2.Should().Be(1);
+    }
+
+    [Fact]
+    public void ArenaDictionary_EmptyDictionary_SpanTryGetValue_ReturnsFalse()
+    {
+        using var arena = new ArenaAllocator();
+        var utf16 = new ArenaDictionary<ArenaUtf16String, int>(arena);
+        var utf8 = new ArenaDictionary<ArenaUtf8String, int>(arena);
+
+        utf16.TryGetValue("x".AsSpan(), out _).Should().BeFalse();
+        utf16.TryGetValue("x"u8, out _).Should().BeFalse();
+        utf8.TryGetValue("x".AsSpan(), out _).Should().BeFalse();
+        utf8.TryGetValue("x"u8, out _).Should().BeFalse();
+    }
+
+    // ---- Empty/default string keys must be reachable through the span-based lookups ----
+    // ArenaUtf16String/ArenaUtf8String.GetHashCode return 0 for empty, while XxHash3 of an empty
+    // span is non-zero; the two hash paths must agree or empty keys land in different buckets.
+
+    [Fact]
+    public void ArenaDictionary_Utf16Key_EmptyKey_FoundBySpanLookup()
+    {
+        using var arena = new ArenaAllocator();
+        var dict = new ArenaDictionary<ArenaUtf16String, int>(arena);
+        dict.TryAdd(default, 42).Should().BeTrue();
+
+        dict.ContainsKey(ReadOnlySpan<char>.Empty).Should().BeTrue();
+        dict.ContainsKey(ReadOnlySpan<byte>.Empty).Should().BeTrue();
+        dict.TryGetValue(ReadOnlySpan<char>.Empty, out var v1).Should().BeTrue();
+        v1.Should().Be(42);
+        dict.TryGetValue(ReadOnlySpan<byte>.Empty, out var v2).Should().BeTrue();
+        v2.Should().Be(42);
+
+        // A cloned empty string must hash the same as default and so be treated as the same key.
+        dict.ContainsKey(ArenaUtf16String.Clone(ReadOnlySpan<char>.Empty, arena)).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ArenaDictionary_Utf8Key_EmptyKey_FoundBySpanLookup()
+    {
+        using var arena = new ArenaAllocator();
+        var dict = new ArenaDictionary<ArenaUtf8String, int>(arena);
+        dict.TryAdd(default, 42).Should().BeTrue();
+
+        dict.ContainsKey(ReadOnlySpan<char>.Empty).Should().BeTrue();
+        dict.ContainsKey(ReadOnlySpan<byte>.Empty).Should().BeTrue();
+        dict.TryGetValue(ReadOnlySpan<char>.Empty, out var v1).Should().BeTrue();
+        v1.Should().Be(42);
+        dict.TryGetValue(ReadOnlySpan<byte>.Empty, out var v2).Should().BeTrue();
+        v2.Should().Be(42);
+
+        dict.ContainsKey(ArenaUtf8String.Clone(ReadOnlySpan<byte>.Empty, arena)).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ArenaSet_Utf16Item_EmptyItem_FoundBySpanLookup()
+    {
+        using var arena = new ArenaAllocator();
+        var set = new ArenaSet<ArenaUtf16String>(arena);
+        set.Add(default).Should().BeTrue();
+        set.Add(ArenaUtf16String.Clone("other", arena)).Should().BeTrue();
+
+        set.Contains(ReadOnlySpan<char>.Empty).Should().BeTrue();
+        set.Contains(ReadOnlySpan<byte>.Empty).Should().BeTrue();
+        set.Contains(ArenaUtf16String.Clone(ReadOnlySpan<char>.Empty, arena)).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ArenaSet_Utf8Item_EmptyItem_FoundBySpanLookup()
+    {
+        using var arena = new ArenaAllocator();
+        var set = new ArenaSet<ArenaUtf8String>(arena);
+        set.Add(default).Should().BeTrue();
+        set.Add(ArenaUtf8String.Clone("other", arena)).Should().BeTrue();
+
+        set.Contains(ReadOnlySpan<char>.Empty).Should().BeTrue();
+        set.Contains(ReadOnlySpan<byte>.Empty).Should().BeTrue();
+        set.Contains(ArenaUtf8String.Clone(ReadOnlySpan<byte>.Empty, arena)).Should().BeTrue();
+    }
+
+    // ---- Double free of a PlatformInvoke allocation must throw, not fault the process ----
+    // In Release builds the freed-page probe used mincore(2), which on macOS reports an
+    // unmapped range as mapped; the follow-up header read then crashed the process.
+
+    [Theory]
+    [InlineData(1u)]
+    [InlineData(64u * 1024u)]
+    public void NativeAllocator_PlatformInvoke_DoubleFree_ThrowsInsteadOfCrashing(uint size)
+    {
+        var ptr = NativeAllocator.Alloc(size, NativeAllocatorBackend.PlatformInvoke);
+        NativeAllocator.Free(ptr, NativeAllocatorBackend.PlatformInvoke);
+
+        var act = () => NativeAllocator.Free(ptr, NativeAllocatorBackend.PlatformInvoke);
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void NativeAllocator_PlatformInvoke_DoubleFree_AfterProtection_ThrowsInsteadOfCrashing()
+    {
+        var ptr = NativeAllocator.Alloc(4096, NativeAllocatorBackend.PlatformInvoke, MemoryProtectionMode.NoAccess);
+        NativeAllocator.Free(ptr, NativeAllocatorBackend.PlatformInvoke);
+
+        var act = () => NativeAllocator.Free(ptr, NativeAllocatorBackend.PlatformInvoke);
+        act.Should().Throw<InvalidOperationException>();
+    }
 }

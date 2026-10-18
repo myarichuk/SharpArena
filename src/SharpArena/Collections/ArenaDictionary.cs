@@ -452,7 +452,11 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
             while (true)
             {
                 int entryIdx = buckets[index] - 1;
-                if (entryIdx < 0) break;
+                if (entryIdx < 0)
+                {
+                    value = default;
+                    return false;
+                }
                 if (keys[entryIdx].Equals(key))
                 {
                     value = values[entryIdx];
@@ -483,7 +487,11 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
                 while (true)
                 {
                     int entryIdx = buckets[index] - 1;
-                    if (entryIdx < 0) break;
+                    if (entryIdx < 0)
+                    {
+                        value = default;
+                        return false;
+                    }
                     if (keys[entryIdx].Equals(byteKey))
                     {
                         value = values[entryIdx];
@@ -522,7 +530,11 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
             while (true)
             {
                 int entryIdx = buckets[index] - 1;
-                if (entryIdx < 0) break;
+                if (entryIdx < 0)
+                {
+                    value = default;
+                    return false;
+                }
                 if (keys[entryIdx].Equals(key))
                 {
                     value = values[entryIdx];
@@ -554,7 +566,11 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
                 while (true)
                 {
                     int entryIdx = buckets[index] - 1;
-                    if (entryIdx < 0) break;
+                    if (entryIdx < 0)
+                    {
+                        value = default;
+                        return false;
+                    }
                     if (keys[entryIdx].Equals(charKey))
                     {
                         value = values[entryIdx];

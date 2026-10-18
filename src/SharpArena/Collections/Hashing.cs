@@ -31,11 +31,17 @@ internal static unsafe class Hashing
         return Mix((uint)EqualityComparer<T>.Default.GetHashCode(value));
     }
 
+    // The span-based hashes below must agree with ArenaUtf16String.GetHashCode /
+    // ArenaUtf8String.GetHashCode (routed through Hash<T> above), because the same bucket
+    // table is probed by both `TKey`-based and span-based lookups. Both GetHashCode
+    // implementations return 0 for a default/empty string, whereas XxHash3 of an empty input is
+    // a fixed non-zero value (0x2D06800538D394C2). Without this special case an empty key stored
+    // via `TKey` could never be found by `ReadOnlySpan<char>.Empty` / `ReadOnlySpan<byte>.Empty`.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static uint HashString(ReadOnlySpan<char> value) =>
-        Mix((uint)XxHash3.HashToUInt64(MemoryMarshal.AsBytes(value)));
+        value.IsEmpty ? Mix(0) : Mix((uint)XxHash3.HashToUInt64(MemoryMarshal.AsBytes(value)));
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static uint HashUtf8(ReadOnlySpan<byte> value) =>
-        Mix((uint)XxHash3.HashToUInt64(value));
+        value.IsEmpty ? Mix(0) : Mix((uint)XxHash3.HashToUInt64(value));
 }

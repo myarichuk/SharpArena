@@ -6,7 +6,10 @@ namespace SharpArena.Tests.Allocators;
 
 public unsafe class NativeAllocatorTests
 {
-    private const nuint PageSize = 4096;
+    // The real page size, not a hard-coded 4096: Apple Silicon macOS (and some Linux arm64
+    // kernels) use 16 KB pages, and the sub-page protection test below relies on `PageSize`
+    // being an actual page boundary.
+    private static readonly nuint PageSize = (nuint)Environment.SystemPageSize;
 
     [Theory]
     [InlineData(NativeAllocatorBackend.DotNetUnmanaged)]
