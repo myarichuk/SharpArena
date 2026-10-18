@@ -435,8 +435,25 @@ public static unsafe class NativeAllocator
         var pageSize = PageSize;
         var pageBase = (nint)AlignDown((nuint)userPtr, pageSize);
 
-        Span<byte> vec = stackalloc byte[1];
-        if (Native.mincore((IntPtr)pageBase, pageSize, ref MemoryMarshal.GetReference(vec)) == 0)
+        // Probe whether the page is still mapped with msync(MS_ASYNC): on Linux, macOS and the
+        // BSDs it fails with ENOMEM when any part of the range is not mapped, and is otherwise a
+        // no-op for the anonymous private pages this allocator hands out (it also succeeds on
+        // PROT_NONE pages, which is what we want: a protected-but-live allocation is not freed).
+        //
+        // mincore(2) is deliberately NOT used here: on macOS it returns 0 (and a populated vec)
+        // even for an address range that has been munmap'ed, so the probe would report "mapped"
+        // and the subsequent `header->Magic` read would fault on unmapped memory, killing the
+        // process with an uncatchable AccessViolationException instead of throwing.
+        //
+        // Limits of this heuristic:
+        //  * It only answers "is this page mapped right now?". If the address range has since
+        //    been reused by an unrelated mapping (our own or the runtime's), the probe says
+        //    "mapped" and detection falls back to the Magic check, which can be fooled by
+        //    whatever that mapping now contains.
+        //  * It cannot distinguish a foreign-but-mapped pointer from a live allocation; that
+        //    case is left to the Magic check as well.
+        //  * Only the page holding `userPtr` is probed, not the whole allocation.
+        if (Native.msync((IntPtr)pageBase, pageSize, Native.MS_ASYNC) == 0)
         {
             return false;
         }
@@ -447,7 +464,7 @@ public static unsafe class NativeAllocator
             return true;
         }
 
-        ThrowLastError("mincore failed");
+        ThrowLastError("msync probe failed");
         return true;
     }
 #endif
@@ -613,6 +630,8 @@ internal static partial class Native
     public const int MAP_ANONYMOUS_LINUX = 0x20;
     public const int MAP_ANONYMOUS_MACOS = 0x1000;
     public const int ENOMEM = 12;
+    // msync flag: same value (0x1) on Linux, macOS and the BSDs.
+    public const int MS_ASYNC = 0x1;
     
 #if NET7_0_OR_GREATER
     [LibraryImport(Kernel32, SetLastError = true)]
@@ -669,7 +688,7 @@ internal static partial class Native
     public static partial int mprotect(IntPtr addr, nuint len, int prot);
 
     [LibraryImport("libc", SetLastError = true)]
-    public static partial int mincore(IntPtr addr, nuint length, ref byte vec);
+    public static partial int msync(IntPtr addr, nuint length, int flags);
 #else
     [DllImport("libc", SetLastError = true, EntryPoint = "mmap")]
     public static extern IntPtr mmap(IntPtr addr, nuint length, int prot, int flags, int fd, nint offset);
@@ -680,7 +699,7 @@ internal static partial class Native
     [DllImport("libc", SetLastError = true, EntryPoint = "mprotect")]
     public static extern int mprotect(IntPtr addr, nuint len, int prot);
 
-    [DllImport("libc", SetLastError = true, EntryPoint = "mincore")]
-    public static extern int mincore(IntPtr addr, nuint length, ref byte vec);
+    [DllImport("libc", SetLastError = true, EntryPoint = "msync")]
+    public static extern int msync(IntPtr addr, nuint length, int flags);
 #endif
 }
