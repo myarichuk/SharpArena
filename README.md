@@ -12,17 +12,19 @@ Check out the samples directory for complete, end-to-end examples of building a 
 - [**BlazorMathSymbolicCalculator**](samples/BlazorMathSymbolicCalculator/) [![Try BlazorMathSymbolicCalculator](https://img.shields.io/badge/Try%20it-BlazorMathSymbolicCalculator-purple)](samples/BlazorMathSymbolicCalculator/): A symbolic calculator Blazor WebAssembly app evaluating math equations in-browser natively without garbage collection.
 
 ### Reusable Parser Example
-The `ArenaMathParser` extracted for the above samples showcases reusing arena allocations efficiently:
+The `ArenaMathParser` extracted for the above samples showcases reusing arena allocations efficiently
+(it lives in `samples/SimpleMathParser`, it is not part of the NuGet package):
 
 ```csharp
 using SharpArena.Allocators;
+using SimpleMathParser; // sample project, see samples/SimpleMathParser
 
 using var arena = new ArenaAllocator();
 
 // Tokenize the mathematical string into unmanaged tokens inside the arena
 var tokens = ArenaMathParser.Tokenize("2 + 3 * x".Replace("x", "10"), arena);
 
-// Evaluate safely allocating on the unmanaged stack internally
+// Evaluate; the evaluation stack is allocated from the arena, not the GC heap
 double result = ArenaMathParser.Evaluate(tokens, arena);
 
 // Resets pointers and drops all tokens without GC involvement
@@ -34,8 +36,11 @@ arena.Reset();
 using SharpArena.Allocators;
 
 using var arena = new ArenaAllocator();
-// Memory allocated from arena, invalid after arena is Reset or Disposed
-var ptr = arena.Alloc(1024);
+unsafe
+{
+    // Memory allocated from arena, invalid after arena is Reset or Disposed
+    byte* ptr = (byte*)arena.Alloc(1024);
+}
 arena.Reset();
 ```
 
@@ -79,7 +84,7 @@ foreach (var item in list.AsSpan()) {
 ```
 **When to use:** Use `ArenaList<T>` when you need a fast, resizable list of items (like AST nodes or tokens) during a single operation, avoiding GC overhead for arrays.
 
-**Note on growth:** When dynamic collections like `ArenaList` double in size, they allocate a new buffer and leave the old buffer alive until `Reset()` is called. This is fine for short-lived arenas, but if you do a lot of growing in one operation, you're temporarily burning memory that could have been reused. This is a classic bump-allocator edge case.
+**Note on growth:** When dynamic collections like `ArenaList` / `ArenaPtrStack` double in size, they first try to grow in place (possible when their buffer is still the most recent allocation in the arena's current segment). Otherwise they allocate a new buffer and leave the old buffer alive until `Reset()` is called. This is fine for short-lived arenas, but if you do a lot of growing in one operation, you're temporarily burning memory that could have been reused. This is a classic bump-allocator edge case.
 
 ### ArenaPtrStack
 A fast, unmanaged stack specifically for pointers.
@@ -87,12 +92,16 @@ A fast, unmanaged stack specifically for pointers.
 ```csharp
 using SharpArena.Collections;
 
-var stack = new ArenaPtrStack<int>(arena, initialCapacity: 16);
-int a = 42;
-stack.Push(&a);
+unsafe
+{
+    var stack = new ArenaPtrStack<int>(arena, initialCapacity: 16);
+    int* a = (int*)arena.Alloc(sizeof(int));
+    *a = 42;
+    stack.Push(a);
 
-var ptr = stack.Pop();
-Console.WriteLine(*ptr);
+    var ptr = stack.Pop();
+    Console.WriteLine(*ptr);
+}
 ```
 **When to use:** Use `ArenaPtrStack<T>` when writing parsers or state machines that need to push and pop pointers to unmanaged memory rapidly.
 

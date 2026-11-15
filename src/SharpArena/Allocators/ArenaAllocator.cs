@@ -87,9 +87,11 @@ public unsafe class ArenaAllocator : IDisposable
     /// <returns>A pointer to the allocated memory.</returns>
     public void* Alloc(nuint size, nuint align = 8)
     {
-        if (_disposed)
+        // _current is nulled on Dispose, so this single check covers the disposed state too.
+        var seg = _current;
+        if (seg is null)
         {
-            throw new ObjectDisposedException(nameof(ArenaAllocator));
+            ThrowDisposed();
         }
 
         if (size == 0)
@@ -97,87 +99,115 @@ public unsafe class ArenaAllocator : IDisposable
             return null;
         }
 
-        var seg = _current;
-        if (seg is null)
-        {
-            throw new ObjectDisposedException(nameof(ArenaAllocator));
-        }
-
         // Alignment must be a power of two for the bit-mask math in ArenaSegment.TryAlloc to work.
         // Round whatever was requested up to the nearest valid power of two instead of silently
         // truncating it to a multiple (e.g. AlignUp(24, 8) == 24, which is not a power of two and
-        // produces incorrectly-aligned pointers).
-        align = RoundUpToPowerOfTwo(align < (nuint)IntPtr.Size ? (nuint)IntPtr.Size : align);
-        var oldOffset = seg->Offset;
+        // produces incorrectly-aligned pointers). The common case (already a power of two, at least
+        // pointer-sized) skips the rounding entirely.
+        if (align < (nuint)IntPtr.Size)
+        {
+            align = (nuint)IntPtr.Size;
+        }
+        else if ((align & (align - 1)) != 0)
+        {
+            align = RoundUpToPowerOfTwo(align);
+            if (align == 0)
+            {
+                throw new OutOfMemoryException("Failed to allocate memory in arena; requested alignment overflows.");
+            }
+        }
+
+        var oldOffset = seg!->Offset;
         if (seg->TryAlloc(size, align, out var ptr))
         {
             _allocatedBytes += (seg->Offset - oldOffset);
             return ptr;
         }
 
-        while (true)
+        return AllocSlow(seg, size, align);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private void* AllocSlow(ArenaSegment* seg, nuint size, nuint align)
+    {
+        void* ptr;
+        nuint oldOffset;
+
+        // After a Reset the chain from the previous generation is still linked: reuse it.
+        while (seg->Next != null)
         {
-            if (_disposed)
+            seg = seg->Next;
+            _current = seg;
+            oldOffset = seg->Offset;
+            if (seg->TryAlloc(size, align, out ptr))
             {
-                throw new ObjectDisposedException(nameof(ArenaAllocator));
+                _allocatedBytes += (seg->Offset - oldOffset);
+                return ptr;
             }
+        }
 
-            if (seg->Next != null)
+        // A fresh segment's usable region starts at `Base`, which itself sits past the
+        // native allocation header and the ArenaSegment header. Alignment padding on top
+        // of that can push the requested block past a segment sized for exactly `size`
+        // bytes. Size the new segment for `size + align - 1` so the allocation is
+        // guaranteed to fit regardless of where `Base` happens to land.
+        nuint required;
+        try
+        {
+            checked
             {
-                seg = seg->Next;
-                _current = seg;
-                oldOffset = seg->Offset;
-                if (seg->TryAlloc(size, align, out ptr))
-                {
-                    _allocatedBytes += (seg->Offset - oldOffset);
-                    return ptr;
-                }
-                continue;
+                required = size + (align - 1);
             }
+        }
+        catch (OverflowException)
+        {
+            throw new OutOfMemoryException("Failed to allocate memory in arena; requested size and alignment overflow.");
+        }
 
-            // A fresh segment's usable region starts at `Base`, which itself sits past the
-            // native allocation header and the ArenaSegment header. Alignment padding on top
-            // of that can push the requested block past a segment sized for exactly `size`
-            // bytes. Size the new segment for `size + align - 1` so the allocation is
-            // guaranteed to fit regardless of where `Base` happens to land.
-            nuint required;
-            try
-            {
-                checked
-                {
-                    required = size + (align - 1);
-                }
-            }
-            catch (OverflowException)
-            {
-                throw new OutOfMemoryException("Failed to allocate memory in arena; requested size and alignment overflow.");
-            }
+        ArenaSegment* newSeg;
+        var remaining = seg->Size - seg->Offset;
 
+        if (required > seg->Size && remaining >= seg->Size / 4)
+        {
+            // Request larger than the whole current segment while that segment still has at
+            // least a quarter of its space free:
+            // give the request a dedicated, exactly-sized segment spliced in *after* the
+            // current one and keep bump-allocating from the current segment. Advancing
+            // `_current` here would strand the remaining free space of `seg` until the next
+            // Reset (e.g. a 100 KB request against a 64 KB segment with 60 KB free would waste
+            // those 60 KB). After a Reset the dedicated segment is reused like any other.
+            newSeg = AllocateSegmentExact(AlignUp(required, DefaultPageSize));
+            newSeg->Next = seg->Next;
+            seg->Next = newSeg;
+        }
+        else
+        {
             var nextSize = NextSegmentSize(seg->Size, required);
-
             if (nextSize > _maxSegmentSize)
             {
                 nextSize = AlignUp(required, DefaultPageSize); // fallback if request > maxSegmentSize
             }
 
-            var newSeg = AllocateSegment(nextSize);
+            newSeg = AllocateSegment(nextSize);
             seg->Next = newSeg;
             _current = newSeg;
-            seg = newSeg;
-
-            oldOffset = seg->Offset;
-            if (!seg->TryAlloc(size, align, out ptr))
-            {
-                // The segment was sized specifically to satisfy this request; failing here means
-                // the sizing math above is wrong, not that the arena is legitimately out of memory.
-                throw new InvalidOperationException(
-                    "Arena allocator invariant violated: a segment freshly allocated to satisfy this request failed to satisfy it.");
-            }
-
-            _allocatedBytes += (seg->Offset - oldOffset);
-            return ptr;
         }
+
+        oldOffset = newSeg->Offset;
+        if (!newSeg->TryAlloc(size, align, out ptr))
+        {
+            // The segment was sized specifically to satisfy this request; failing here means
+            // the sizing math above is wrong, not that the arena is legitimately out of memory.
+            throw new InvalidOperationException(
+                "Arena allocator invariant violated: a segment freshly allocated to satisfy this request failed to satisfy it.");
+        }
+
+        _allocatedBytes += (newSeg->Offset - oldOffset);
+        return ptr;
     }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void ThrowDisposed() => throw new ObjectDisposedException(nameof(ArenaAllocator));
 
     /// <summary>
     /// Attempts to grow or shrink an allocation in place, without copying, when <paramref name="ptr"/>
@@ -232,7 +262,11 @@ public unsafe class ArenaAllocator : IDisposable
     private ArenaSegment* AllocateSegment(nuint requestSize)
     {
         var prevSize = _current == null ? 0 : _current->Size;
-        var segSize = NextSegmentSize(prevSize, requestSize);
+        return AllocateSegmentExact(NextSegmentSize(prevSize, requestSize));
+    }
+
+    private ArenaSegment* AllocateSegmentExact(nuint segSize)
+    {
         var total = (nuint)sizeof(ArenaSegment) + segSize;
         var mem = (byte*)NativeAllocator.Alloc(total, _backend);
         var seg = (ArenaSegment*)mem;
@@ -265,6 +299,11 @@ public unsafe class ArenaAllocator : IDisposable
     private static nuint AlignUp(nuint value, nuint align)
     {
         align = RoundUpToPowerOfTwo(align);
+        if (align == 0)
+        {
+            throw new OverflowException("Alignment caused an integer overflow.");
+        }
+
         nuint result = (value + (align - 1)) & ~(align - 1);
 
         // If an overflow occurs when adding `align - 1`, the result wraps
@@ -297,13 +336,14 @@ public unsafe class ArenaAllocator : IDisposable
         x |= x >> 4;
         x |= x >> 8;
         x |= x >> 16;
-#if TARGET_64BIT
-        x |= x >> 32;
-#endif
 
-        // Overflow safety mechanism not explicitly required here,
-        // because maximum value with all bits set (1) becomes 0 when incremented,
-        // which triggers overflow checks up the stack in AlignUp.
+        // NOTE: this used to be guarded by `#if TARGET_64BIT`, which is a CoreCLR-internal
+        // define that is never set for ordinary library builds, so on 64-bit processes any
+        // value above 2^32 was "rounded" to a non-power-of-two. Shifting a 32-bit nuint by 32
+        // masks the count to 0 (x |= x), so doing it unconditionally is correct on both widths.
+        x |= x >> 32;
+
+        // All bits set wraps to 0 here; callers treat 0 as overflow.
         return x + 1;
     }
 

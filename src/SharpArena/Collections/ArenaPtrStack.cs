@@ -187,7 +187,7 @@ public readonly unsafe struct ArenaPtrStack<T>
         _header->Count = 0;
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    [MethodImpl(MethodImplOptions.NoInlining)]
     private void Grow()
     {
         int oldCap = _header->Capacity;
@@ -203,6 +203,15 @@ public readonly unsafe struct ArenaPtrStack<T>
         if (byteCount != (ulong)(nuint)byteCount)
         {
             throw new OutOfMemoryException("ArenaPtrStack capacity exceeds addressable memory");
+        }
+
+        // If the buffer is still the tail allocation of the current segment, grow it in place
+        // (no copy, no leaked old buffer). The old size must match the original allocation.
+        ulong oldCapacityBytes = (ulong)(uint)oldCap * (ulong)sizeof(T*);
+        if (_arena.TryResizeInPlace(_header->Data, (nuint)oldCapacityBytes, (nuint)byteCount))
+        {
+            _header->Capacity = newCap;
+            return;
         }
 
         var newPtr = _arena.Alloc((nuint)byteCount, align: (nuint)IntPtr.Size);
