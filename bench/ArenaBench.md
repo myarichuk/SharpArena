@@ -1,71 +1,36 @@
+# SharpArena benchmarks
+
+This file intentionally contains no numbers. The previous results were produced on a different
+machine (Windows) by a benchmark class that no longer exists, so they were removed. Regenerate
+results on your own hardware.
+
+## Running
+
+```
+dotnet run -c Release --project bench/SharpArena.Bench -f net10.0 -- --filter '*'
 ```
 
-BenchmarkDotNet v0.15.8, Windows 11 (10.0.26200.8037/25H2/2025Update/HudsonValley2)
-Intel Core Ultra 7 155H 1.40GHz, 1 CPU, 22 logical and 16 physical cores
-.NET SDK 10.0.104
-  [Host]     : .NET 10.0.4 (10.0.4, 10.0.426.12010), X64 RyuJIT x86-64-v3
-  DefaultJob : .NET 10.0.4 (10.0.4, 10.0.426.12010), X64 RyuJIT x86-64-v3
+Use `--filter '*SteadyState*'`, `'*Lifetime*'` or `'*Collection*'` to run one group. For a quick
+smoke test only (numbers from it are not meaningful): add `--job Dry`.
+Results are written to `bench/SharpArena.Bench/BenchmarkDotNet.Artifacts/`.
 
+## What is measured
 
-```
-| Method                                                             | Size   | AllocationsPerRequest | Mean            | Error           | StdDev          | Median          | Ratio  | RatioSD | Gen0   | Allocated | Alloc Ratio |
-|------------------------------------------------------------------- |------- |---------------------- |----------------:|----------------:|----------------:|----------------:|-------:|--------:|-------:|----------:|------------:|
-| **NativeMemory.Alloc/Free**                                            | **64**     | **10**                    |        **714.7 ns** |        **14.33 ns** |        **39.23 ns** |        **707.1 ns** |   **1.00** |    **0.08** |      **-** |         **-** |          **NA** |
-| &#39;ArenaAllocator [P/Invoke] (create -&gt; alloc -&gt; dispose)&#39;           | 64     | 10                    |      6,828.3 ns |       100.71 ns |        89.28 ns |      6,825.0 ns |   9.58 |    0.52 | 0.0076 |     104 B |          NA |
-| &#39;ArenaAllocator [NativeMemory.Alloc] (create -&gt; alloc -&gt; dispose)&#39; | 64     | 10                    |        567.7 ns |        27.40 ns |        76.38 ns |        576.0 ns |   0.80 |    0.11 | 0.0076 |     104 B |          NA |
-| &#39;Varena (create -&gt; alloc -&gt; dispose)&#39;                              | 64     | 10                    |     24,491.5 ns |     2,375.46 ns |     7,004.10 ns |     24,163.3 ns |  34.37 |    9.96 |      - |     216 B |          NA |
-|                                                                    |        |                       |                 |                 |                 |                 |        |         |        |           |             |
-| **NativeMemory.Alloc/Free**                                            | **64**     | **100**                   |      **3,474.2 ns** |        **68.23 ns** |        **63.83 ns** |      **3,485.5 ns** |   **1.00** |    **0.03** |      **-** |         **-** |          **NA** |
-| &#39;ArenaAllocator [P/Invoke] (create -&gt; alloc -&gt; dispose)&#39;           | 64     | 100                   |      5,802.1 ns |        84.38 ns |        78.93 ns |      5,786.8 ns |   1.67 |    0.04 | 0.0076 |     104 B |          NA |
-| &#39;ArenaAllocator [NativeMemory.Alloc] (create -&gt; alloc -&gt; dispose)&#39; | 64     | 100                   |      1,715.0 ns |        29.30 ns |        27.41 ns |      1,712.8 ns |   0.49 |    0.01 | 0.0076 |     104 B |          NA |
-| &#39;Varena (create -&gt; alloc -&gt; dispose)&#39;                              | 64     | 100                   |     15,264.3 ns |       304.08 ns |       298.65 ns |     15,267.9 ns |   4.39 |    0.11 |      - |     216 B |          NA |
-|                                                                    |        |                       |                 |                 |                 |                 |        |         |        |           |             |
-| **NativeMemory.Alloc/Free**                                            | **64**     | **1000**                  |     **35,588.2 ns** |       **615.73 ns** |       **514.16 ns** |     **35,521.1 ns** |   **1.00** |    **0.02** |      **-** |         **-** |          **NA** |
-| &#39;ArenaAllocator [P/Invoke] (create -&gt; alloc -&gt; dispose)&#39;           | 64     | 1000                  |     19,781.1 ns |       351.33 ns |       311.45 ns |     19,698.8 ns |   0.56 |    0.01 |      - |     104 B |          NA |
-| &#39;ArenaAllocator [NativeMemory.Alloc] (create -&gt; alloc -&gt; dispose)&#39; | 64     | 1000                  |     15,216.9 ns |       293.51 ns |       260.19 ns |     15,293.2 ns |   0.43 |    0.01 |      - |     104 B |          NA |
-| &#39;Varena (create -&gt; alloc -&gt; dispose)&#39;                              | 64     | 1000                  |     43,906.3 ns |       531.06 ns |       496.75 ns |     43,883.0 ns |   1.23 |    0.02 |      - |     216 B |          NA |
-|                                                                    |        |                       |                 |                 |                 |                 |        |         |        |           |             |
-| **NativeMemory.Alloc/Free**                                            | **1024**   | **10**                    |        **363.1 ns** |         **4.60 ns** |         **3.84 ns** |        **363.7 ns** |   **1.00** |    **0.01** |      **-** |         **-** |          **NA** |
-| &#39;ArenaAllocator [P/Invoke] (create -&gt; alloc -&gt; dispose)&#39;           | 1024   | 10                    |      4,611.2 ns |        86.21 ns |        95.82 ns |      4,609.7 ns |  12.70 |    0.29 | 0.0076 |     104 B |          NA |
-| &#39;ArenaAllocator [NativeMemory.Alloc] (create -&gt; alloc -&gt; dispose)&#39; | 1024   | 10                    |        582.9 ns |        59.49 ns |       175.41 ns |        642.1 ns |   1.61 |    0.48 | 0.0081 |     104 B |          NA |
-| &#39;Varena (create -&gt; alloc -&gt; dispose)&#39;                              | 1024   | 10                    |     33,818.6 ns |     1,089.10 ns |     3,053.96 ns |     33,449.5 ns |  93.14 |    8.42 |      - |     216 B |          NA |
-|                                                                    |        |                       |                 |                 |                 |                 |        |         |        |           |             |
-| **NativeMemory.Alloc/Free**                                            | **1024**   | **100**                   |      **7,016.7 ns** |       **379.34 ns** |     **1,069.95 ns** |      **7,093.4 ns** |   **1.03** |    **0.24** |      **-** |         **-** |          **NA** |
-| &#39;ArenaAllocator [P/Invoke] (create -&gt; alloc -&gt; dispose)&#39;           | 1024   | 100                   |     21,768.3 ns |     2,234.43 ns |     6,588.27 ns |     26,473.2 ns |   3.19 |    1.13 |      - |     104 B |          NA |
-| &#39;ArenaAllocator [NativeMemory.Alloc] (create -&gt; alloc -&gt; dispose)&#39; | 1024   | 100                   |      1,844.6 ns |        27.56 ns |        25.78 ns |      1,842.7 ns |   0.27 |    0.05 | 0.0076 |     104 B |          NA |
-| &#39;Varena (create -&gt; alloc -&gt; dispose)&#39;                              | 1024   | 100                   |     62,006.4 ns |       734.77 ns |       687.31 ns |     62,079.5 ns |   9.08 |    1.65 |      - |     216 B |          NA |
-|                                                                    |        |                       |                 |                 |                 |                 |        |         |        |           |             |
-| **NativeMemory.Alloc/Free**                                            | **1024**   | **1000**                  |     **34,114.4 ns** |       **556.00 ns** |       **492.88 ns** |     **34,051.8 ns** |   **1.00** |    **0.02** |      **-** |         **-** |          **NA** |
-| &#39;ArenaAllocator [P/Invoke] (create -&gt; alloc -&gt; dispose)&#39;           | 1024   | 1000                  |     43,443.2 ns |       816.70 ns |       763.94 ns |     43,193.6 ns |   1.27 |    0.03 |      - |     104 B |          NA |
-| &#39;ArenaAllocator [NativeMemory.Alloc] (create -&gt; alloc -&gt; dispose)&#39; | 1024   | 1000                  |     24,196.7 ns |       261.39 ns |       231.71 ns |     24,162.0 ns |   0.71 |    0.01 |      - |     104 B |          NA |
-| &#39;Varena (create -&gt; alloc -&gt; dispose)&#39;                              | 1024   | 1000                  |    348,398.4 ns |     6,859.20 ns |     9,156.84 ns |    345,776.4 ns |  10.21 |    0.30 |      - |     216 B |          NA |
-|                                                                    |        |                       |                 |                 |                 |                 |        |         |        |           |             |
-| **NativeMemory.Alloc/Free**                                            | **16384**  | **10**                    |        **346.4 ns** |         **6.94 ns** |         **8.78 ns** |        **344.6 ns** |   **1.00** |    **0.03** |      **-** |         **-** |          **NA** |
-| &#39;ArenaAllocator [P/Invoke] (create -&gt; alloc -&gt; dispose)&#39;           | 16384  | 10                    |      8,960.8 ns |       237.21 ns |       665.18 ns |      8,636.2 ns |  25.89 |    2.01 |      - |     104 B |          NA |
-| &#39;ArenaAllocator [NativeMemory.Alloc] (create -&gt; alloc -&gt; dispose)&#39; | 16384  | 10                    |        498.6 ns |         9.45 ns |        17.51 ns |        498.2 ns |   1.44 |    0.06 | 0.0076 |     104 B |          NA |
-| &#39;Varena (create -&gt; alloc -&gt; dispose)&#39;                              | 16384  | 10                    |     79,920.8 ns |     1,559.96 ns |     1,669.14 ns |     80,024.2 ns | 230.88 |    7.30 |      - |     216 B |          NA |
-|                                                                    |        |                       |                 |                 |                 |                 |        |         |        |           |             |
-| **NativeMemory.Alloc/Free**                                            | **16384**  | **100**                   |      **3,355.7 ns** |        **56.26 ns** |        **49.87 ns** |      **3,349.5 ns** |   **1.00** |    **0.02** |      **-** |         **-** |          **NA** |
-| &#39;ArenaAllocator [P/Invoke] (create -&gt; alloc -&gt; dispose)&#39;           | 16384  | 100                   |     28,615.1 ns |       504.08 ns |       420.93 ns |     28,638.7 ns |   8.53 |    0.17 |      - |     104 B |          NA |
-| &#39;ArenaAllocator [NativeMemory.Alloc] (create -&gt; alloc -&gt; dispose)&#39; | 16384  | 100                   |     10,123.5 ns |       197.59 ns |       194.06 ns |     10,137.2 ns |   3.02 |    0.07 |      - |     104 B |          NA |
-| &#39;Varena (create -&gt; alloc -&gt; dispose)&#39;                              | 16384  | 100                   |    497,004.7 ns |     6,027.29 ns |     5,637.93 ns |    495,332.2 ns | 148.14 |    2.66 |      - |     216 B |          NA |
-|                                                                    |        |                       |                 |                 |                 |                 |        |         |        |           |             |
-| **NativeMemory.Alloc/Free**                                            | **16384**  | **1000**                  |     **34,646.4 ns** |       **692.77 ns** |     **1,078.55 ns** |     **34,386.8 ns** |   **1.00** |    **0.04** |      **-** |         **-** |          **NA** |
-| &#39;ArenaAllocator [P/Invoke] (create -&gt; alloc -&gt; dispose)&#39;           | 16384  | 1000                  |     78,018.4 ns |     1,533.84 ns |     2,047.64 ns |     78,318.9 ns |   2.25 |    0.09 |      - |     104 B |          NA |
-| &#39;ArenaAllocator [NativeMemory.Alloc] (create -&gt; alloc -&gt; dispose)&#39; | 16384  | 1000                  |     63,743.3 ns |     1,261.89 ns |     1,640.81 ns |     63,955.7 ns |   1.84 |    0.07 |      - |     104 B |          NA |
-| &#39;Varena (create -&gt; alloc -&gt; dispose)&#39;                              | 16384  | 1000                  |  4,845,443.1 ns |    52,075.70 ns |    43,485.56 ns |  4,838,251.6 ns | 139.98 |    4.30 |      - |     216 B |          NA |
-|                                                                    |        |                       |                 |                 |                 |                 |        |         |        |           |             |
-| **NativeMemory.Alloc/Free**                                            | **262144** | **10**                    |      **1,784.3 ns** |       **343.25 ns** |     **1,006.70 ns** |      **1,276.8 ns** |   **1.27** |    **0.91** |      **-** |         **-** |          **NA** |
-| &#39;ArenaAllocator [P/Invoke] (create -&gt; alloc -&gt; dispose)&#39;           | 262144 | 10                    |     55,762.7 ns |     1,063.16 ns |     1,044.16 ns |     55,918.1 ns |  39.70 |   15.49 |      - |     104 B |          NA |
-| &#39;ArenaAllocator [NativeMemory.Alloc] (create -&gt; alloc -&gt; dispose)&#39; | 262144 | 10                    |     22,267.4 ns |       440.69 ns |       573.02 ns |     22,174.9 ns |  15.85 |    6.19 |      - |     104 B |          NA |
-| &#39;Varena (create -&gt; alloc -&gt; dispose)&#39;                              | 262144 | 10                    |    782,999.9 ns |    11,257.22 ns |     8,788.90 ns |    781,528.6 ns | 557.49 |  217.39 |      - |     216 B |          NA |
-|                                                                    |        |                       |                 |                 |                 |                 |        |         |        |           |             |
-| **NativeMemory.Alloc/Free**                                            | **262144** | **100**                   |     **11,043.0 ns** |       **549.87 ns** |     **1,467.72 ns** |     **10,326.3 ns** |   **1.02** |    **0.18** |      **-** |         **-** |          **NA** |
-| &#39;ArenaAllocator [P/Invoke] (create -&gt; alloc -&gt; dispose)&#39;           | 262144 | 100                   |     86,501.3 ns |     1,725.12 ns |     3,600.96 ns |     85,555.5 ns |   7.96 |    1.03 |      - |     104 B |          NA |
-| &#39;ArenaAllocator [NativeMemory.Alloc] (create -&gt; alloc -&gt; dispose)&#39; | 262144 | 100                   |     62,911.6 ns |     1,233.82 ns |     2,027.20 ns |     62,526.5 ns |   5.79 |    0.74 |      - |     104 B |          NA |
-| &#39;Varena (create -&gt; alloc -&gt; dispose)&#39;                              | 262144 | 100                   |  7,662,301.2 ns |    94,557.15 ns |    88,448.82 ns |  7,642,153.1 ns | 705.26 |   87.15 |      - |     216 B |          NA |
-|                                                                    |        |                       |                 |                 |                 |                 |        |         |        |           |             |
-| **NativeMemory.Alloc/Free**                                            | **262144** | **1000**                  |    **120,962.6 ns** |     **6,749.65 ns** |    **17,423.01 ns** |    **120,728.6 ns** |   **1.02** |    **0.20** |      **-** |         **-** |          **NA** |
-| &#39;ArenaAllocator [P/Invoke] (create -&gt; alloc -&gt; dispose)&#39;           | 262144 | 1000                  |    148,974.3 ns |     3,895.79 ns |    11,240.25 ns |    148,775.1 ns |   1.26 |    0.20 |      - |     104 B |          NA |
-| &#39;ArenaAllocator [NativeMemory.Alloc] (create -&gt; alloc -&gt; dispose)&#39; | 262144 | 1000                  |    133,331.1 ns |     2,279.76 ns |     2,713.89 ns |    132,362.5 ns |   1.12 |    0.16 |      - |     104 B |          NA |
-| &#39;Varena (create -&gt; alloc -&gt; dispose)&#39;                              | 262144 | 1000                  | 75,370,698.0 ns | 1,245,754.70 ns | 1,104,329.09 ns | 75,331,364.3 ns | 635.55 |   88.70 |      - |     216 B |          NA |
+All classes use `[MemoryDiagnoser]`, and every benchmark returns a value derived from what it
+allocated so the work cannot be eliminated.
+
+**LifetimeBenchmarks** - end-to-end lifetime cost: create arena (including the first segment
+allocation), N allocations, dispose. Parameters: `Size` (64..262144 bytes), `AllocationsPerRequest`
+(10/100/1000). This is not the arena's steady-state cost; it is dominated by construction for small N.
+- `NativeMemory.Alloc/Free x N` (baseline)
+- `Arena [P/Invoke]` and `Arena [NativeMemory]`: one arena per op, per backend
+- `Varena`: `VirtualArenaManager` plus a 256 MiB buffer per op
+
+**SteadyStateBenchmarks** - the arena's intended use: one arena created in `[GlobalSetup]`,
+disposed in `[GlobalCleanup]`. Each invocation does 1000 allocations of `Size` (16/256/4096) bytes,
+then `Reset()`. Reported per allocation (`OperationsPerInvoke`). Baseline is `NativeMemory.Alloc`
++ `Free` per allocation.
+
+**CollectionBenchmarks** - 1000 inserts on a long-lived arena, including growth, then `Reset()`:
+- fresh `ArenaList<int>` + `Add` x1000 + `Reset` vs fresh `List<int>` + `Add` x1000 (both grow from default capacity)
+- fresh `ArenaDictionary<int,int>` + `TryAdd` x1000 + `Reset` vs fresh `Dictionary<int,int>` + `TryAdd` x1000

@@ -139,4 +139,10 @@ To achieve maximum performance and zero overhead on the hot path, `ArenaAllocato
 - **Single-Threaded Collections:** Collections like `ArenaList<T>` and `ArenaUtf16String` are intended to be used within the same thread that owns the arena.
 
 ## Benchmarks
-See `bench/ArenaBench.md` for performance numbers compared to NativeMemory and Varena.
+Benchmarks (BenchmarkDotNet) live in `bench/SharpArena.Bench`: end-to-end arena lifetime cost, steady-state allocate-then-`Reset()` versus `NativeMemory.Alloc`/`Free`, and `ArenaList`/`ArenaDictionary` versus `List`/`Dictionary`. No results are published here because numbers depend on hardware; run them yourself:
+
+```
+dotnet run -c Release --project bench/SharpArena.Bench -f net10.0 -- --filter '*'
+```
+
+See `bench/ArenaBench.md` for what each benchmark measures.
