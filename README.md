@@ -67,6 +67,14 @@ Console.WriteLine(str.ToString());
 `ArenaUtf16String` equality and hash codes are both content-based (character data + length), so separately cloned but equal text compares and hashes the same.
 **When to use:** Use `ArenaUtf16String` when you need to store substrings, tokens, or parsed text during parsing or processing without creating `System.String` allocations for every token.
 
+**Lifetime:** `ArenaUtf16String` and `ArenaUtf8String` are unmanaged structs that do not hold a reference to their arena. `ToString()`, `AsSpan()`, equality and the span conversion do not check whether the arena is still alive, so reading a string after `arena.Reset()` or `arena.Dispose()` is undefined behaviour. Call `str.Verify(arena)` (throws `ObjectDisposedException`) or `str.IsAlive(arena)` when the arena's state is uncertain. Keep the arena reachable (for example with `using var arena = ...`) for as long as its strings are in use, because the arena's finalizer frees the memory once the arena is unreachable. Collections such as `ArenaList` hold the arena and throw `ObjectDisposedException` on access instead.
+
+```csharp
+str.Verify(arena);                  // throws ObjectDisposedException if the arena was reset or disposed
+Console.WriteLine(str.ToString());  // only reached while the arena is alive
+Console.WriteLine(str.Length);
+```
+
 ### ArenaList
 A dynamic array (list) backed by the arena for unmanaged structs.
 

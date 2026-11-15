@@ -8,6 +8,7 @@ namespace SharpArena.Allocators;
 /// </summary>
 /// <remarks>
 /// All memory allocated from this arena is invalid after <see cref="Reset"/> or <see cref="Dispose()"/> is called.
+/// The finalizer frees the native memory when the arena is no longer reachable, so keep a reference to the arena while raw pointers, spans or strings allocated from it are still in use (for example with <c>using var arena = ...</c>, or <see cref="System.GC.KeepAlive(object)"/>).
 /// </remarks>
 public unsafe class ArenaAllocator : IDisposable
 {
