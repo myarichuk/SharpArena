@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Runtime.InteropServices;
 using SharpArena.Allocators;
 using SharpArena.Collections;
@@ -38,12 +39,21 @@ public class ArenaMathParser
                 continue;
             }
 
-            if (char.IsDigit(c))
+            if (IsAsciiDigit(c) || (c == '.' && i + 1 < input.Length && IsAsciiDigit(input[i + 1])))
             {
+                // Decimal literal: digits [ '.' digits ] or '.' digits (e.g. 12, 1.5, .5)
                 int start = i;
-                while (i < input.Length && char.IsDigit(input[i]))
+                while (i < input.Length && IsAsciiDigit(input[i]))
                 {
                     i++;
+                }
+                if (i < input.Length && input[i] == '.')
+                {
+                    i++;
+                    while (i < input.Length && IsAsciiDigit(input[i]))
+                    {
+                        i++;
+                    }
                 }
                 var val = ArenaUtf16String.Clone(input[start..i], arena);
                 tokens.Add(new Token(TokenType.Number, val));
@@ -67,6 +77,8 @@ public class ArenaMathParser
         return tokens;
     }
 
+    private static bool IsAsciiDigit(char c) => c >= '0' && c <= '9';
+
     /// <summary>
     /// Evaluates a list of tokens representing a math expression and returns the result.
     /// </summary>
@@ -76,58 +88,99 @@ public class ArenaMathParser
     /// <exception cref="SyntaxErrorException">Thrown on invalid syntax or division by zero.</exception>
     public static unsafe double Evaluate(ArenaList<Token> tokens, ArenaAllocator arena)
     {
+        if (tokens.Length == 0)
+        {
+            throw new SyntaxErrorException("Empty expression.");
+        }
+
         var postfix = new ArenaList<Token>(arena, tokens.Length);
         var opStack = new ArenaPtrStack<Token>(arena);
 
-        var span = tokens.AsSpan();
-        fixed (Token* pTokens = span)
+        // Grammar:  expr    := operand (binop operand)*
+        //           operand := number | '(' expr ')' | ('-' | '+') operand
+        // Precedence (high to low): unary +/- (3, right-assoc) > * / (2) > binary + - (1).
+        // So -2*3 = (-2)*3 and 2*-3 = 2*(-3). There is no '^' operator.
+        // Work on a copy so a '-'/'+' in operand position can be retyped as unary
+        // without mutating the caller's tokens (the stack holds pointers into this copy).
+        var src = tokens.AsSpan();
+        Token* pTokens = (Token*)arena.Alloc((nuint)(src.Length * sizeof(Token)), 8);
+        src.CopyTo(new Span<Token>(pTokens, src.Length));
+        int count = src.Length;
+
+        bool expectOperand = true;
+        for (int i = 0; i < count; i++)
         {
-            for (int i = 0; i < span.Length; i++)
-            {
-                Token* t = pTokens + i;
+            Token* t = pTokens + i;
 
-                switch (t->Type)
+            switch (t->Type)
+            {
+                case TokenType.Number:
+                    if (!expectOperand)
+                        throw new SyntaxErrorException("Unexpected number: expected an operator.");
+                    postfix.Add(*t);
+                    expectOperand = false;
+                    break;
+                case TokenType.LParen:
+                    if (!expectOperand)
+                        throw new SyntaxErrorException("Unexpected '(': expected an operator.");
+                    opStack.Push(t);
+                    break;
+                case TokenType.RParen:
                 {
-                    case TokenType.Number:
-                        postfix.Add(*t);
-                        break;
-                    case TokenType.LParen:
+                    if (expectOperand)
+                        throw new SyntaxErrorException("Unexpected ')': expected an operand.");
+                    while (!opStack.IsEmpty && opStack.Peek()->Type != TokenType.LParen)
+                    {
+                        postfix.Add(*opStack.Pop());
+                    }
+
+                    if (opStack.IsEmpty)
+                    {
+                        throw new SyntaxErrorException("Mismatched parentheses: Unexpected ')'");
+                    }
+                    opStack.Pop(); // Pop the LParen
+                    break;
+                }
+                default:
+                {
+                    if (expectOperand)
+                    {
+                        if (t->Type == TokenType.Minus) t->Type = TokenType.UnaryMinus;
+                        else if (t->Type == TokenType.Plus) t->Type = TokenType.UnaryPlus;
+                        else if (t->Type != TokenType.UnaryMinus && t->Type != TokenType.UnaryPlus)
+                            throw new SyntaxErrorException($"Unexpected operator '{t->GetValueSpan().ToString()}': expected an operand.");
+
+                        // Prefix operator: nothing to pop, still expecting an operand.
                         opStack.Push(t);
                         break;
-                    case TokenType.RParen:
-                    {
-                        while (!opStack.IsEmpty && opStack.Peek()->Type != TokenType.LParen)
-                        {
-                            postfix.Add(*opStack.Pop());
-                        }
+                    }
 
-                        if (opStack.IsEmpty)
-                        {
-                            throw new SyntaxErrorException("Mismatched parentheses: Unexpected ')'");
-                        }
-                        opStack.Pop(); // Pop the LParen
-                        break;
-                    }
-                    default:
+                    if (t->Type is TokenType.UnaryMinus or TokenType.UnaryPlus)
+                        throw new SyntaxErrorException("Unexpected unary operator: expected a binary operator.");
+
+                    while (!opStack.IsEmpty && Precedence(opStack.Peek()->Type) >= Precedence(t->Type))
                     {
-                        while (!opStack.IsEmpty && Precedence(opStack.Peek()->Type) >= Precedence(t->Type))
-                        {
-                            postfix.Add(*opStack.Pop());
-                        }
-                        opStack.Push(t);
-                        break;
+                        postfix.Add(*opStack.Pop());
                     }
+                    opStack.Push(t);
+                    expectOperand = true;
+                    break;
                 }
             }
+        }
 
-            while (!opStack.IsEmpty)
+        if (expectOperand)
+        {
+            throw new SyntaxErrorException("Invalid expression: expected an operand.");
+        }
+
+        while (!opStack.IsEmpty)
+        {
+            if (opStack.Peek()->Type is TokenType.LParen)
             {
-                if (opStack.Peek()->Type is TokenType.LParen)
-                {
-                    throw new SyntaxErrorException("Mismatched parentheses: Missing ')'");
-                }
-                postfix.Add(*opStack.Pop());
+                throw new SyntaxErrorException("Mismatched parentheses: Missing ')'");
             }
+            postfix.Add(*opStack.Pop());
         }
 
         return EvaluatePostfix(postfix, arena);
@@ -145,11 +198,19 @@ public class ArenaMathParser
         {
             if (t.Type == TokenType.Number)
             {
-                if (!double.TryParse(t.GetValueSpan(), out double val))
+                if (!double.TryParse(t.GetValueSpan(), NumberStyles.Float, CultureInfo.InvariantCulture, out double val))
                 {
                     throw new SyntaxErrorException($"Invalid number format: {t.GetValueSpan().ToString()}");
                 }
                 evalStack[top++] = val;
+            }
+            else if (t.Type is TokenType.UnaryMinus or TokenType.UnaryPlus)
+            {
+                if (top < 1)
+                {
+                    throw new SyntaxErrorException("Invalid expression: Not enough operands for operator.");
+                }
+                if (t.Type == TokenType.UnaryMinus) evalStack[top - 1] = -evalStack[top - 1];
             }
             else
             {
@@ -185,6 +246,7 @@ public class ArenaMathParser
     {
         TokenType.Plus or TokenType.Minus => 1,
         TokenType.Multiply or TokenType.Divide => 2,
+        TokenType.UnaryMinus or TokenType.UnaryPlus => 3,
         _ => 0
     };
 }
@@ -207,7 +269,11 @@ public enum TokenType
     /// <summary>A left parenthesis.</summary>
     LParen,
     /// <summary>A right parenthesis.</summary>
-    RParen
+    RParen,
+    /// <summary>Unary negation (produced during conversion to postfix, not by the tokenizer).</summary>
+    UnaryMinus,
+    /// <summary>Unary plus (produced during conversion to postfix, not by the tokenizer).</summary>
+    UnaryPlus
 }
 
 /// <summary>

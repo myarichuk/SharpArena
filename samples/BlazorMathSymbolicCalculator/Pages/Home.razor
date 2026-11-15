@@ -65,14 +65,8 @@
     private string ErrorMessage { get; set; } = "";
     private List<string> History { get; set; } = new();
 
-#if NET8_0_OR_GREATER
+    // WASM has no mmap/VirtualAlloc, so use the runtime's native heap.
     private ArenaAllocator _arena = new ArenaAllocator(backend: NativeAllocatorBackend.DotNetUnmanaged);
-#else
-    // NativeAllocatorBackend has no NativeMemory member — NativeMemory.Alloc/Free is a .NET 6+ API
-    // that DotNetUnmanaged uses internally only when compiled for NET8_0_OR_GREATER, so older
-    // target frameworks fall back to the P/Invoke-based backend instead.
-    private ArenaAllocator _arena = new ArenaAllocator(backend: NativeAllocatorBackend.PlatformInvoke);
-#endif
 
     public void Dispose()
     {
@@ -101,24 +95,8 @@
 
             string exprToParse = Expression;
 
-            // Simple variable substitution
-            if (!string.IsNullOrWhiteSpace(VariablesText))
-            {
-                var pairs = VariablesText.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
-                foreach (var pair in pairs)
-                {
-                    var kvp = pair.Split(new[] { '=' }, 2, StringSplitOptions.RemoveEmptyEntries);
-                    if (kvp.Length == 2)
-                    {
-                        string key = kvp[0].Trim();
-                        string val = kvp[1].Trim();
-
-                        // Replace whole words to avoid partial matching
-                        // For a simple demo, string.Replace is okay, but let's do simple naive replace for now
-                        exprToParse = exprToParse.Replace(key, val);
-                    }
-                }
-            }
+            // Whole-identifier, parenthesized variable substitution
+            exprToParse = VariableSubstitution.Apply(exprToParse, VariablesText);
 
             var tokens = ArenaMathParser.Tokenize(exprToParse, _arena);
             double result = ArenaMathParser.Evaluate(tokens, _arena);
