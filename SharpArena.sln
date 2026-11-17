@@ -21,6 +21,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimpleMathParser", "samples
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlazorMathSymbolicCalculator", "samples\BlazorMathSymbolicCalculator\BlazorMathSymbolicCalculator.csproj", "{E5DB9BC6-0AFF-4AD8-9C51-2DF3D62D6804}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimpleMathParser.Tests", "tests\SimpleMathParser.Tests\SimpleMathParser.Tests.csproj", "{3BF1CBD5-EA8C-4BA8-B933-E60C91E03F8F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -91,6 +93,18 @@ Global
 		{E5DB9BC6-0AFF-4AD8-9C51-2DF3D62D6804}.Release|x64.Build.0 = Release|Any CPU
 		{E5DB9BC6-0AFF-4AD8-9C51-2DF3D62D6804}.Release|x86.ActiveCfg = Release|Any CPU
 		{E5DB9BC6-0AFF-4AD8-9C51-2DF3D62D6804}.Release|x86.Build.0 = Release|Any CPU
+		{3BF1CBD5-EA8C-4BA8-B933-E60C91E03F8F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3BF1CBD5-EA8C-4BA8-B933-E60C91E03F8F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3BF1CBD5-EA8C-4BA8-B933-E60C91E03F8F}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{3BF1CBD5-EA8C-4BA8-B933-E60C91E03F8F}.Debug|x64.Build.0 = Debug|Any CPU
+		{3BF1CBD5-EA8C-4BA8-B933-E60C91E03F8F}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{3BF1CBD5-EA8C-4BA8-B933-E60C91E03F8F}.Debug|x86.Build.0 = Debug|Any CPU
+		{3BF1CBD5-EA8C-4BA8-B933-E60C91E03F8F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3BF1CBD5-EA8C-4BA8-B933-E60C91E03F8F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3BF1CBD5-EA8C-4BA8-B933-E60C91E03F8F}.Release|x64.ActiveCfg = Release|Any CPU
+		{3BF1CBD5-EA8C-4BA8-B933-E60C91E03F8F}.Release|x64.Build.0 = Release|Any CPU
+		{3BF1CBD5-EA8C-4BA8-B933-E60C91E03F8F}.Release|x86.ActiveCfg = Release|Any CPU
+		{3BF1CBD5-EA8C-4BA8-B933-E60C91E03F8F}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -101,5 +115,6 @@ Global
 		{03DFA1F9-6367-4598-9845-EAD6FDE6596C} = {760AB15A-8938-8D9B-BEDE-5CE1484B84C3}
 		{57CE4510-1C98-492B-AA24-41BD29DB2531} = {5D20AA90-6969-D8BD-9DCD-8634F4692FDA}
 		{E5DB9BC6-0AFF-4AD8-9C51-2DF3D62D6804} = {5D20AA90-6969-D8BD-9DCD-8634F4692FDA}
+		{3BF1CBD5-EA8C-4BA8-B933-E60C91E03F8F} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 EndGlobal

@@ -341,7 +341,18 @@ public unsafe struct ArenaBlockList<T> : IEnumerable<T>
             return ReadOnlySpan<T>.Empty;
         }
 
-        var buffer = (T*)_arena.Alloc(total * (nuint)sizeof(T));
+        if (total > int.MaxValue)
+        {
+            throw new InvalidOperationException("ArenaBlockList is too large to be exposed as a single span.");
+        }
+
+        // total <= int.MaxValue, so this cannot overflow a 64-bit nuint; guard 32-bit explicitly.
+        if ((ulong)total * (ulong)sizeof(T) != (ulong)(nuint)((ulong)total * (ulong)sizeof(T)))
+        {
+            throw new OutOfMemoryException("ArenaBlockList size exceeds addressable memory.");
+        }
+
+        var buffer = (T*)_arena.Alloc(total * (nuint)sizeof(T), align: (nuint)UnsafeHelpers.AlignOf<T>());
         var dst = buffer;
         for (var block = _head; block != null; block = block->Next)
         {

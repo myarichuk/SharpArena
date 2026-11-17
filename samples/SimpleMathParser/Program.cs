@@ -1,6 +1,4 @@
-using System.Runtime.InteropServices;
 using SharpArena.Allocators;
-using SharpArena.Collections;
 using Spectre.Console;
 
 AnsiConsole.MarkupLine("[bold yellow]--- SharpArena Simple Math Parser ---[/]");
@@ -35,7 +33,7 @@ while (true)
     }
     catch (SimpleMathParser.SyntaxErrorException e)
     {
-        AnsiConsole.MarkupLine($"[bold red]Syntax Error:[/] {e.Message}");
+        AnsiConsole.MarkupLine($"[bold red]Syntax Error:[/] {Markup.Escape(e.Message)}");
     }
     catch (Exception e)
     {

@@ -1,6 +1,4 @@
 using System.Collections;
-using System.Buffers;
-using System.Text;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -18,6 +16,7 @@ internal unsafe struct ArenaDictionaryHeader
     public int Capacity; // Must be power of 2
     public int GrowThreshold; // Count at/above which the table grows before the next insert; always < Capacity
     public int* Buckets; // 1-based indices (0 = empty)
+    public uint* Hashes; // Contiguous cached (mixed) hash per entry, parallel to Keys
     public void* Keys;   // Contiguous TKey*
     public void* Values; // Contiguous TValue*
 }
@@ -36,8 +35,6 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     private readonly ArenaAllocator _arena;
     private readonly int _generation;
     internal ArenaDictionaryHeader* _header;
-
-    private const float LoadFactor = 0.7f;
 
     // A table with fewer than 4 buckets fills up completely under LoadFactor rounding (e.g.
     // capacity 1 or 2 means every bucket must be occupied before growth is even considered),
@@ -74,10 +71,7 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
 
         _header = (ArenaDictionaryHeader*)arena.Alloc((nuint)sizeof(ArenaDictionaryHeader), align: 8);
         _header->Count = 0;
-        _header->Capacity = capacity;
-        _header->GrowThreshold = ComputeGrowThreshold(capacity);
-
-        AllocateTable(capacity);
+        Resize(capacity, copyCount: 0);
     }
 
     /// <summary>
@@ -91,47 +85,52 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
         return threshold >= capacity ? capacity - 1 : threshold;
     }
 
-    private void AllocateTable(int capacity)
+    /// <summary>
+    /// Allocates a fresh table of <paramref name="newCap"/> buckets, copies the first
+    /// <paramref name="copyCount"/> dense entries over and rebuilds the bucket index from the
+    /// cached hashes (no key is re-hashed).
+    /// </summary>
+    private void Resize(int newCap, int copyCount)
     {
-        nuint bucketsSize = (nuint)capacity * sizeof(int);
-        nuint keysSize = (nuint)capacity * (nuint)sizeof(TKey);
-        nuint valuesSize = (nuint)capacity * (nuint)sizeof(TValue);
+        int* newBuckets = (int*)_arena.Alloc((nuint)newCap * sizeof(int), align: 16);
+        uint* newHashes = (uint*)_arena.Alloc((nuint)newCap * sizeof(uint), align: 16);
+        TKey* newKeys = (TKey*)_arena.Alloc((nuint)newCap * (nuint)sizeof(TKey), align: (nuint)UnsafeHelpers.AlignOf<TKey>());
+        TValue* newValues = (TValue*)_arena.Alloc((nuint)newCap * (nuint)sizeof(TValue), align: (nuint)UnsafeHelpers.AlignOf<TValue>());
 
-        _header->Buckets = (int*)_arena.Alloc(bucketsSize, align: 16);
-        _header->Keys = _arena.Alloc(keysSize, align: (nuint)UnsafeHelpers.AlignOf<TKey>());
-        _header->Values = _arena.Alloc(valuesSize, align: (nuint)UnsafeHelpers.AlignOf<TValue>());
+        new Span<int>(newBuckets, newCap).Clear();
 
-        new Span<int>(_header->Buckets, capacity).Clear();
+        if (copyCount > 0)
+        {
+            Buffer.MemoryCopy(_header->Hashes, newHashes, (nuint)newCap * sizeof(uint), (nuint)copyCount * sizeof(uint));
+            Buffer.MemoryCopy(_header->Keys, newKeys, (nuint)newCap * (nuint)sizeof(TKey), (nuint)copyCount * (nuint)sizeof(TKey));
+            Buffer.MemoryCopy(_header->Values, newValues, (nuint)newCap * (nuint)sizeof(TValue), (nuint)copyCount * (nuint)sizeof(TValue));
+            OpenAddressing.Rebuild(newBuckets, newHashes, copyCount, (uint)newCap - 1);
+        }
+
+        _header->Capacity = newCap;
+        _header->GrowThreshold = ComputeGrowThreshold(newCap);
+        _header->Buckets = newBuckets;
+        _header->Hashes = newHashes;
+        _header->Keys = newKeys;
+        _header->Values = newValues;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private readonly void CheckAlive() => 
+    private readonly void CheckAlive() =>
         UnsafeHelpers.CheckAliveThrowIfNot(_arena, _generation, nameof(ArenaDictionary<,>));
 
-    private readonly int FindBucket(TKey key)
-    {
-        uint capacity = (uint)_header->Capacity;
-        int* buckets = _header->Buckets;
-        TKey* keys = (TKey*)_header->Keys;
-        uint mask = capacity - 1;
-        uint hash = Hashing.Hash(key);
-        uint index = hash & mask;
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private readonly int FindBucket(in TKey key, uint hash) =>
+        OpenAddressing.FindSlot(_header->Buckets, _header->Hashes, (TKey*)_header->Keys, (uint)_header->Capacity - 1, key, hash);
 
-        while (true)
-        {
-            int entryIdx = buckets[index] - 1;
-            if (entryIdx < 0) return (int)index;
-
-            if (keys[entryIdx].Equals(key)) return (int)index;
-
-            index = (index + 1) & mask;
-        }
-    }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private readonly int FindEntry(in TKey key) =>
+        _header->Buckets[FindBucket(key, Hashing.Hash(key))] - 1;
 
     /// <summary>
     /// Gets the number of elements contained in the <see cref="ArenaDictionary{TKey, TValue}"/>.
     /// </summary>
-    public int Count
+    public readonly int Count
     {
         get
         {
@@ -153,9 +152,9 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     /// <exception cref="KeyNotFoundException">The property is retrieved and <paramref name="key"/> is not found.</exception>
     public TValue this[TKey key]
     {
-        readonly get => TryGetValue(key, out var value) ? 
+        readonly get => TryGetValue(key, out var value) ?
             value : throw new KeyNotFoundException();
-        set => AddOrUpdate(key, value);
+        set => Insert(key, value, overwrite: true);
     }
 
     /// <summary>
@@ -191,52 +190,41 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     /// <param name="key">The key of the element to add.</param>
     /// <param name="value">The value of the element to add.</param>
     /// <returns><see langword="true"/> if the key/value pair was added to the dictionary successfully; <see langword="false"/> if the key already exists.</returns>
-    public bool TryAdd(TKey key, TValue value)
+    public bool TryAdd(TKey key, TValue value) => Insert(key, value, overwrite: false);
+
+    /// <returns><see langword="true"/> when a new entry was added.</returns>
+    private bool Insert(in TKey key, in TValue value, bool overwrite)
     {
         CheckAlive();
 
-        int bucketIdx = FindBucket(key);
+        uint hash = Hashing.Hash(key);
+        int bucketIdx = FindBucket(key, hash);
         int entryIdx = _header->Buckets[bucketIdx] - 1;
-        if (entryIdx >= 0) return false;
+        if (entryIdx >= 0)
+        {
+            if (overwrite)
+            {
+                ((TValue*)_header->Values)[entryIdx] = value;
+            }
+
+            return false;
+        }
 
         if (_header->Count >= _header->GrowThreshold)
         {
             Grow();
-            bucketIdx = FindBucket(key);
+            bucketIdx = FindBucket(key, hash);
         }
 
         int newEntryIdx = _header->Count++;
         _header->Buckets[bucketIdx] = newEntryIdx + 1;
+        _header->Hashes[newEntryIdx] = hash;
         ((TKey*)_header->Keys)[newEntryIdx] = key;
         ((TValue*)_header->Values)[newEntryIdx] = value;
         return true;
     }
 
-    private void AddOrUpdate(TKey key, TValue value)
-    {
-        CheckAlive();
-
-        int bucketIdx = FindBucket(key);
-        int entryIdx = _header->Buckets[bucketIdx] - 1;
-        if (entryIdx < 0)
-        {
-            if (_header->Count >= _header->GrowThreshold)
-            {
-                Grow();
-                bucketIdx = FindBucket(key);
-            }
-
-            int newEntryIdx = _header->Count++;
-            _header->Buckets[bucketIdx] = newEntryIdx + 1;
-            ((TKey*)_header->Keys)[newEntryIdx] = key;
-            ((TValue*)_header->Values)[newEntryIdx] = value;
-        }
-        else
-        {
-            ((TValue*)_header->Values)[entryIdx] = value;
-        }
-    }
-
+    [MethodImpl(MethodImplOptions.NoInlining)]
     private void Grow()
     {
         int oldCap = _header->Capacity;
@@ -245,33 +233,7 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
             throw new InvalidOperationException("ArenaDictionary capacity overflow.");
         }
 
-        int newCap = oldCap * 2;
-        int count = _header->Count;
-        TKey* oldKeys = (TKey*)_header->Keys;
-        TValue* oldValues = (TValue*)_header->Values;
-
-        int* newBuckets = (int*)_arena.Alloc((nuint)newCap * (nuint)sizeof(int), align: 16);
-        TKey* newKeys = (TKey*)_arena.Alloc((nuint)newCap * (nuint)sizeof(TKey), align: (nuint)UnsafeHelpers.AlignOf<TKey>());
-        TValue* newValues = (TValue*)_arena.Alloc((nuint)newCap * (nuint)sizeof(TValue), align: (nuint)UnsafeHelpers.AlignOf<TValue>());
-
-        new Span<int>(newBuckets, newCap).Clear();
-        Buffer.MemoryCopy(oldKeys, newKeys, (nuint)newCap * (nuint)sizeof(TKey), (nuint)count * (nuint)sizeof(TKey));
-        Buffer.MemoryCopy(oldValues, newValues, (nuint)newCap * (nuint)sizeof(TValue), (nuint)count * (nuint)sizeof(TValue));
-
-        _header->Capacity = newCap;
-        _header->GrowThreshold = ComputeGrowThreshold(newCap);
-        _header->Buckets = newBuckets;
-        _header->Keys = newKeys;
-        _header->Values = newValues;
-
-        uint mask = (uint)newCap - 1;
-        for (int i = 0; i < count; i++)
-        {
-            uint hash = Hashing.Hash(newKeys[i]);
-            uint idx = hash & mask;
-            while (newBuckets[idx] != 0) idx = (idx + 1) & mask;
-            newBuckets[idx] = i + 1;
-        }
+        Resize(oldCap * 2, _header->Count);
     }
 
     /// <summary>
@@ -282,8 +244,7 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     public readonly bool ContainsKey(TKey key)
     {
         CheckAlive();
-        int bucketIdx = FindBucket(key);
-        return _header->Buckets[bucketIdx] != 0;
+        return FindEntry(key) >= 0;
     }
 
     /// <summary>
@@ -294,118 +255,20 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     /// <returns><see langword="true"/> if the <see cref="ArenaDictionary{TKey, TValue}"/> contains an element with the key; otherwise, <see langword="false"/>.</returns>
     public readonly bool ContainsKey(ReadOnlySpan<char> key)
     {
-        if (typeof(TKey) == typeof(ArenaUtf16String))
-        {
-            CheckAlive();
-            
-            uint capacity = (uint)_header->Capacity;
-            int* buckets = _header->Buckets;
-            ArenaUtf16String* keys = (ArenaUtf16String*)_header->Keys;
-            uint mask = capacity - 1;
-            uint hash = Hashing.HashString(key);
-            uint index = hash & mask;
-
-            while (true)
-            {
-                int entryIdx = buckets[index] - 1;
-                if (entryIdx < 0) return false;
-                if (keys[entryIdx].Equals(key)) return true;
-                index = (index + 1) & mask;
-            }
-        }
-        
-        if (typeof(TKey) == typeof(ArenaUtf8String))
-        {
-            CheckAlive();
-            int maxBytes = Encoding.UTF8.GetMaxByteCount(key.Length);
-            byte[]? rented = null;
-            Span<byte> buffer = maxBytes <= 512 ? stackalloc byte[512] : (rented = ArrayPool<byte>.Shared.Rent(maxBytes));
-            try
-            {
-                int written = Encoding.UTF8.GetBytes(key, buffer);
-                ReadOnlySpan<byte> byteKey = buffer.Slice(0, written);
-                
-                uint capacity = (uint)_header->Capacity;
-                int* buckets = _header->Buckets;
-                ArenaUtf8String* keys = (ArenaUtf8String*)_header->Keys;
-                uint mask = capacity - 1;
-                uint hash = Hashing.HashUtf8(byteKey);
-                uint index = hash & mask;
-                while (true)
-                {
-                    int entryIdx = buckets[index] - 1;
-                    if (entryIdx < 0) return false;
-                    if (keys[entryIdx].Equals(byteKey)) return true;
-                    index = (index + 1) & mask;
-                }
-            }
-            finally
-            {
-                if (rented != null) ArrayPool<byte>.Shared.Return(rented);
-            }
-        }
-
-        throw new NotSupportedException($"{typeof(TKey)} does not support lookup by {nameof(ReadOnlySpan<char>)}.");
+        CheckAlive();
+        return OpenAddressing.FindEntry(_header->Buckets, _header->Hashes, (TKey*)_header->Keys, (uint)_header->Capacity - 1, key) >= 0;
     }
 
     /// <summary>
     /// Specialized ContainsKey for ArenaUtf8String using ReadOnlySpan{byte} to avoid allocations.
+    /// Supports cross-encoding for ArenaUtf16String.
     /// </summary>
     /// <param name="key">The key to locate in the <see cref="ArenaDictionary{TKey, TValue}"/>.</param>
     /// <returns><see langword="true"/> if the <see cref="ArenaDictionary{TKey, TValue}"/> contains an element with the key; otherwise, <see langword="false"/>.</returns>
     public readonly bool ContainsKey(ReadOnlySpan<byte> key)
     {
-        if (typeof(TKey) == typeof(ArenaUtf8String))
-        {
-            CheckAlive();
-            uint capacity = (uint)_header->Capacity;
-            int* buckets = _header->Buckets;
-            ArenaUtf8String* keys = (ArenaUtf8String*)_header->Keys;
-            uint mask = capacity - 1;
-            uint hash = Hashing.HashUtf8(key);
-            uint index = hash & mask;
-            while (true)
-            {
-                int entryIdx = buckets[index] - 1;
-                if (entryIdx < 0) return false;
-                if (keys[entryIdx].Equals(key)) return true;
-                index = (index + 1) & mask;
-            }
-        }
-
-        if (typeof(TKey) == typeof(ArenaUtf16String))
-        {
-            CheckAlive();
-            int maxChars = Encoding.UTF8.GetMaxCharCount(key.Length);
-            char[]? rented = null;
-            Span<char> buffer = maxChars <= 512 ? stackalloc char[512] : (rented = ArrayPool<char>.Shared.Rent(maxChars));
-            try
-            {
-                int written = Encoding.UTF8.GetChars(key, buffer);
-                ReadOnlySpan<char> charKey = buffer.Slice(0, written);
-
-                uint capacity = (uint)_header->Capacity;
-                int* buckets = _header->Buckets;
-                ArenaUtf16String* keys = (ArenaUtf16String*)_header->Keys;
-                uint mask = capacity - 1;
-                uint hash = Hashing.HashString(charKey);
-                uint index = hash & mask;
-
-                while (true)
-                {
-                    int entryIdx = buckets[index] - 1;
-                    if (entryIdx < 0) return false;
-                    if (keys[entryIdx].Equals(charKey)) return true;
-                    index = (index + 1) & mask;
-                }
-            }
-            finally
-            {
-                if (rented != null) ArrayPool<char>.Shared.Return(rented);
-            }
-        }
-
-        throw new NotSupportedException($"{typeof(TKey)} does not support lookup by {nameof(ReadOnlySpan<byte>)}.");
+        CheckAlive();
+        return OpenAddressing.FindEntry(_header->Buckets, _header->Hashes, (TKey*)_header->Keys, (uint)_header->Capacity - 1, key) >= 0;
     }
 
     /// <summary>
@@ -417,15 +280,7 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     public readonly bool TryGetValue(TKey key, out TValue value)
     {
         CheckAlive();
-        int bucketIdx = FindBucket(key);
-        int entryIdx = _header->Buckets[bucketIdx] - 1;
-        if (entryIdx >= 0)
-        {
-            value = ((TValue*)_header->Values)[entryIdx];
-            return true;
-        }
-        value = default;
-        return false;
+        return TryGetValueAt(FindEntry(key), out value);
     }
 
     /// <summary>
@@ -437,155 +292,38 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     /// <returns><see langword="true"/> if the <see cref="ArenaDictionary{TKey, TValue}"/> contains an element with the specified key; otherwise, <see langword="false"/>.</returns>
     public readonly bool TryGetValue(ReadOnlySpan<char> key, out TValue value)
     {
-        if (typeof(TKey) == typeof(ArenaUtf16String))
-        {
-            CheckAlive();
-
-            uint capacity = (uint)_header->Capacity;
-            int* buckets = _header->Buckets;
-            ArenaUtf16String* keys = (ArenaUtf16String*)_header->Keys;
-            TValue* values = (TValue*)_header->Values;
-            uint mask = capacity - 1;
-            uint hash = Hashing.HashString(key);
-            uint index = hash & mask;
-
-            while (true)
-            {
-                int entryIdx = buckets[index] - 1;
-                if (entryIdx < 0)
-                {
-                    value = default;
-                    return false;
-                }
-                if (keys[entryIdx].Equals(key))
-                {
-                    value = values[entryIdx];
-                    return true;
-                }
-                index = (index + 1) & mask;
-            }
-        }
-
-        if (typeof(TKey) == typeof(ArenaUtf8String))
-        {
-            CheckAlive();
-            int maxBytes = Encoding.UTF8.GetMaxByteCount(key.Length);
-            byte[]? rented = null;
-            Span<byte> buffer = maxBytes <= 512 ? stackalloc byte[512] : (rented = ArrayPool<byte>.Shared.Rent(maxBytes));
-            try
-            {
-                int written = Encoding.UTF8.GetBytes(key, buffer);
-                ReadOnlySpan<byte> byteKey = buffer.Slice(0, written);
-
-                uint capacity = (uint)_header->Capacity;
-                int* buckets = _header->Buckets;
-                ArenaUtf8String* keys = (ArenaUtf8String*)_header->Keys;
-                TValue* values = (TValue*)_header->Values;
-                uint mask = capacity - 1;
-                uint hash = Hashing.HashUtf8(byteKey);
-                uint index = hash & mask;
-                while (true)
-                {
-                    int entryIdx = buckets[index] - 1;
-                    if (entryIdx < 0)
-                    {
-                        value = default;
-                        return false;
-                    }
-                    if (keys[entryIdx].Equals(byteKey))
-                    {
-                        value = values[entryIdx];
-                        return true;
-                    }
-                    index = (index + 1) & mask;
-                }
-            }
-            finally
-            {
-                if (rented != null) ArrayPool<byte>.Shared.Return(rented);
-            }
-        }
-
-        throw new NotSupportedException($"{typeof(TKey)} does not support lookup by {nameof(ReadOnlySpan<char>)}.");
+        CheckAlive();
+        return TryGetValueAt(
+            OpenAddressing.FindEntry(_header->Buckets, _header->Hashes, (TKey*)_header->Keys, (uint)_header->Capacity - 1, key),
+            out value);
     }
 
     /// <summary>
     /// Specialized TryGetValue for ArenaUtf8String using ReadOnlySpan{byte} to avoid allocations.
+    /// Supports cross-encoding for ArenaUtf16String.
     /// </summary>
     /// <param name="key">The key whose value to get.</param>
     /// <param name="value">When this method returns, the value associated with the specified key, if the key is found; otherwise, the default value for the type of the <paramref name="value"/> parameter. This parameter is passed uninitialized.</param>
     /// <returns><see langword="true"/> if the <see cref="ArenaDictionary{TKey, TValue}"/> contains an element with the specified key; otherwise, <see langword="false"/>.</returns>
     public readonly bool TryGetValue(ReadOnlySpan<byte> key, out TValue value)
     {
-        if (typeof(TKey) == typeof(ArenaUtf8String))
+        CheckAlive();
+        return TryGetValueAt(
+            OpenAddressing.FindEntry(_header->Buckets, _header->Hashes, (TKey*)_header->Keys, (uint)_header->Capacity - 1, key),
+            out value);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private readonly bool TryGetValueAt(int entryIdx, out TValue value)
+    {
+        if (entryIdx >= 0)
         {
-            CheckAlive();
-            uint capacity = (uint)_header->Capacity;
-            int* buckets = _header->Buckets;
-            ArenaUtf8String* keys = (ArenaUtf8String*)_header->Keys;
-            TValue* values = (TValue*)_header->Values;
-            uint mask = capacity - 1;
-            uint hash = Hashing.HashUtf8(key);
-            uint index = hash & mask;
-            while (true)
-            {
-                int entryIdx = buckets[index] - 1;
-                if (entryIdx < 0)
-                {
-                    value = default;
-                    return false;
-                }
-                if (keys[entryIdx].Equals(key))
-                {
-                    value = values[entryIdx];
-                    return true;
-                }
-                index = (index + 1) & mask;
-            }
+            value = ((TValue*)_header->Values)[entryIdx];
+            return true;
         }
 
-        if (typeof(TKey) == typeof(ArenaUtf16String))
-        {
-            CheckAlive();
-            int maxChars = Encoding.UTF8.GetMaxCharCount(key.Length);
-            char[]? rented = null;
-            Span<char> buffer = maxChars <= 512 ? stackalloc char[512] : (rented = ArrayPool<char>.Shared.Rent(maxChars));
-            try
-            {
-                int written = Encoding.UTF8.GetChars(key, buffer);
-                ReadOnlySpan<char> charKey = buffer.Slice(0, written);
-
-                uint capacity = (uint)_header->Capacity;
-                int* buckets = _header->Buckets;
-                ArenaUtf16String* keys = (ArenaUtf16String*)_header->Keys;
-                TValue* values = (TValue*)_header->Values;
-                uint mask = capacity - 1;
-                uint hash = Hashing.HashString(charKey);
-                uint index = hash & mask;
-
-                while (true)
-                {
-                    int entryIdx = buckets[index] - 1;
-                    if (entryIdx < 0)
-                    {
-                        value = default;
-                        return false;
-                    }
-                    if (keys[entryIdx].Equals(charKey))
-                    {
-                        value = values[entryIdx];
-                        return true;
-                    }
-                    index = (index + 1) & mask;
-                }
-            }
-            finally
-            {
-                if (rented != null) ArrayPool<char>.Shared.Return(rented);
-            }
-        }
-
-        throw new NotSupportedException($"{typeof(TKey)} does not support lookup by {nameof(ReadOnlySpan<byte>)}.");
+        value = default;
+        return false;
     }
 
     /// <summary>
@@ -613,43 +351,11 @@ public unsafe struct ArenaDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
     {
         CheckAlive();
         int count = _header->Count;
-        if (count == 0)
-        {
-            _header->Capacity = MinCapacity;
-            _header->GrowThreshold = ComputeGrowThreshold(MinCapacity);
-            AllocateTable(MinCapacity);
-            return;
-        }
-
         int newCap = MinCapacity;
-        while ((long)newCap * 7 / 10 < count) newCap <<= 1;
+        while (ComputeGrowThreshold(newCap) < count) newCap <<= 1;
         if (newCap >= _header->Capacity) return;
 
-        TKey* oldKeys = (TKey*)_header->Keys;
-        TValue* oldValues = (TValue*)_header->Values;
-
-        int* newBuckets = (int*)_arena.Alloc((nuint)newCap * (nuint)sizeof(int), align: 16);
-        TKey* newKeys = (TKey*)_arena.Alloc((nuint)newCap * (nuint)sizeof(TKey), align: (nuint)UnsafeHelpers.AlignOf<TKey>());
-        TValue* newValues = (TValue*)_arena.Alloc((nuint)newCap * (nuint)sizeof(TValue), align: (nuint)UnsafeHelpers.AlignOf<TValue>());
-
-        new Span<int>(newBuckets, newCap).Clear();
-        Buffer.MemoryCopy(oldKeys, newKeys, (nuint)newCap * (nuint)sizeof(TKey), (nuint)count * (nuint)sizeof(TKey));
-        Buffer.MemoryCopy(oldValues, newValues, (nuint)newCap * (nuint)sizeof(TValue), (nuint)count * (nuint)sizeof(TValue));
-
-        _header->Capacity = newCap;
-        _header->GrowThreshold = ComputeGrowThreshold(newCap);
-        _header->Buckets = newBuckets;
-        _header->Keys = newKeys;
-        _header->Values = newValues;
-
-        uint mask = (uint)newCap - 1;
-        for (int i = 0; i < count; i++)
-        {
-            uint hash = Hashing.Hash(newKeys[i]);
-            uint idx = hash & mask;
-            while (newBuckets[idx] != 0) idx = (idx + 1) & mask;
-            newBuckets[idx] = i + 1;
-        }
+        Resize(newCap, count);
     }
 
     /// <summary>

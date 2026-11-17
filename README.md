@@ -12,17 +12,19 @@ Check out the samples directory for complete, end-to-end examples of building a 
 - [**BlazorMathSymbolicCalculator**](samples/BlazorMathSymbolicCalculator/) [![Try BlazorMathSymbolicCalculator](https://img.shields.io/badge/Try%20it-BlazorMathSymbolicCalculator-purple)](samples/BlazorMathSymbolicCalculator/): A symbolic calculator Blazor WebAssembly app evaluating math equations in-browser natively without garbage collection.
 
 ### Reusable Parser Example
-The `ArenaMathParser` extracted for the above samples showcases reusing arena allocations efficiently:
+The `ArenaMathParser` extracted for the above samples showcases reusing arena allocations efficiently
+(it lives in `samples/SimpleMathParser`, it is not part of the NuGet package):
 
 ```csharp
 using SharpArena.Allocators;
+using SimpleMathParser; // sample project, see samples/SimpleMathParser
 
 using var arena = new ArenaAllocator();
 
 // Tokenize the mathematical string into unmanaged tokens inside the arena
 var tokens = ArenaMathParser.Tokenize("2 + 3 * x".Replace("x", "10"), arena);
 
-// Evaluate safely allocating on the unmanaged stack internally
+// Evaluate; the evaluation stack is allocated from the arena, not the GC heap
 double result = ArenaMathParser.Evaluate(tokens, arena);
 
 // Resets pointers and drops all tokens without GC involvement
@@ -34,8 +36,11 @@ arena.Reset();
 using SharpArena.Allocators;
 
 using var arena = new ArenaAllocator();
-// Memory allocated from arena, invalid after arena is Reset or Disposed
-var ptr = arena.Alloc(1024);
+unsafe
+{
+    // Memory allocated from arena, invalid after arena is Reset or Disposed
+    byte* ptr = (byte*)arena.Alloc(1024);
+}
 arena.Reset();
 ```
 
@@ -62,6 +67,14 @@ Console.WriteLine(str.ToString());
 `ArenaUtf16String` equality and hash codes are both content-based (character data + length), so separately cloned but equal text compares and hashes the same.
 **When to use:** Use `ArenaUtf16String` when you need to store substrings, tokens, or parsed text during parsing or processing without creating `System.String` allocations for every token.
 
+**Lifetime:** `ArenaUtf16String` and `ArenaUtf8String` are unmanaged structs that do not hold a reference to their arena. `ToString()`, `AsSpan()`, equality and the span conversion do not check whether the arena is still alive, so reading a string after `arena.Reset()` or `arena.Dispose()` is undefined behaviour. Call `str.Verify(arena)` (throws `ObjectDisposedException`) or `str.IsAlive(arena)` when the arena's state is uncertain. Keep the arena reachable (for example with `using var arena = ...`) for as long as its strings are in use, because the arena's finalizer frees the memory once the arena is unreachable. Collections such as `ArenaList` hold the arena and throw `ObjectDisposedException` on access instead.
+
+```csharp
+str.Verify(arena);                  // throws ObjectDisposedException if the arena was reset or disposed
+Console.WriteLine(str.ToString());  // only reached while the arena is alive
+Console.WriteLine(str.Length);
+```
+
 ### ArenaList
 A dynamic array (list) backed by the arena for unmanaged structs.
 
@@ -79,7 +92,7 @@ foreach (var item in list.AsSpan()) {
 ```
 **When to use:** Use `ArenaList<T>` when you need a fast, resizable list of items (like AST nodes or tokens) during a single operation, avoiding GC overhead for arrays.
 
-**Note on growth:** When dynamic collections like `ArenaList` double in size, they allocate a new buffer and leave the old buffer alive until `Reset()` is called. This is fine for short-lived arenas, but if you do a lot of growing in one operation, you're temporarily burning memory that could have been reused. This is a classic bump-allocator edge case.
+**Note on growth:** When dynamic collections like `ArenaList` / `ArenaPtrStack` double in size, they first try to grow in place (possible when their buffer is still the most recent allocation in the arena's current segment). Otherwise they allocate a new buffer and leave the old buffer alive until `Reset()` is called. This is fine for short-lived arenas, but if you do a lot of growing in one operation, you're temporarily burning memory that could have been reused. This is a classic bump-allocator edge case.
 
 ### ArenaPtrStack
 A fast, unmanaged stack specifically for pointers.
@@ -87,12 +100,16 @@ A fast, unmanaged stack specifically for pointers.
 ```csharp
 using SharpArena.Collections;
 
-var stack = new ArenaPtrStack<int>(arena, initialCapacity: 16);
-int a = 42;
-stack.Push(&a);
+unsafe
+{
+    var stack = new ArenaPtrStack<int>(arena, initialCapacity: 16);
+    int* a = (int*)arena.Alloc(sizeof(int));
+    *a = 42;
+    stack.Push(a);
 
-var ptr = stack.Pop();
-Console.WriteLine(*ptr);
+    var ptr = stack.Pop();
+    Console.WriteLine(*ptr);
+}
 ```
 **When to use:** Use `ArenaPtrStack<T>` when writing parsers or state machines that need to push and pop pointers to unmanaged memory rapidly.
 
@@ -122,4 +139,10 @@ To achieve maximum performance and zero overhead on the hot path, `ArenaAllocato
 - **Single-Threaded Collections:** Collections like `ArenaList<T>` and `ArenaUtf16String` are intended to be used within the same thread that owns the arena.
 
 ## Benchmarks
-See `bench/ArenaBench.md` for performance numbers compared to NativeMemory and Varena.
+Benchmarks (BenchmarkDotNet) live in `bench/SharpArena.Bench`: end-to-end arena lifetime cost, steady-state allocate-then-`Reset()` versus `NativeMemory.Alloc`/`Free`, and `ArenaList`/`ArenaDictionary` versus `List`/`Dictionary`. No results are published here because numbers depend on hardware; run them yourself:
+
+```
+dotnet run -c Release --project bench/SharpArena.Bench -f net10.0 -- --filter '*'
+```
+
+See `bench/ArenaBench.md` for what each benchmark measures.

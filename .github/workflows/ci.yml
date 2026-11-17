@@ -9,33 +9,72 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build_and_test:
-    runs-on: ubuntu-latest
+    name: Build & test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    defaults:
+      run:
+        shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: |
             8.0.x
-            9.0.x
             10.0.x
-          dotnet-quality: preview
+
+      - name: Restore dependencies
+        run: dotnet restore SharpArena.sln
+
+      - name: Build
+        run: dotnet build SharpArena.sln --no-restore -c Release
+
+      - name: Test
+        run: dotnet test SharpArena.sln --no-build -c Release --verbosity normal
+
+  release:
+    name: Release
+    needs: build_and_test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: release-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
 
       - name: Install GitVersion
-        uses: gittools/actions/gitversion/setup@v3.0.0
+        uses: gittools/actions/gitversion/setup@a94a3b62ee018ef5346cb08fd0d63d93811fe691 # v3.0.0
         with:
           versionSpec: '5.x'
 
       - name: Determine Version
         id: gitversion
-        uses: gittools/actions/gitversion/execute@v3.0.0
+        uses: gittools/actions/gitversion/execute@a94a3b62ee018ef5346cb08fd0d63d93811fe691 # v3.0.0
         with:
           useConfigFile: true
 
@@ -43,60 +82,57 @@ jobs:
         run: dotnet restore SharpArena.sln
 
       - name: Build
-        run: dotnet build SharpArena.sln --no-restore -c Release /p:Version=${{ steps.gitversion.outputs.AssemblySemVer }} /p:InformationalVersion=${{ steps.gitversion.outputs.InformationalVersion }}
-
-      - name: Test
-        run: dotnet test SharpArena.sln --no-build -c Release --verbosity normal
+        env:
+          ASSEMBLY_SEMVER: ${{ steps.gitversion.outputs.AssemblySemVer }}
+          INFORMATIONAL_VERSION: ${{ steps.gitversion.outputs.InformationalVersion }}
+        run: dotnet build SharpArena.sln --no-restore -c Release /p:Version="$ASSEMBLY_SEMVER" /p:InformationalVersion="$INFORMATIONAL_VERSION"
 
       - name: Check Tag Exists
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         id: check_tag
+        env:
+          SEMVER: ${{ steps.gitversion.outputs.SemVer }}
         run: |
-          if git ls-remote --tags origin | grep -q "refs/tags/v${{ steps.gitversion.outputs.SemVer }}$"; then
-            echo "Tag v${{ steps.gitversion.outputs.SemVer }} already exists. Skipping."
-            echo "TAG_EXISTS=true" >> $GITHUB_ENV
+          if git ls-remote --tags origin | grep -q "refs/tags/v$SEMVER$"; then
+            echo "Tag v$SEMVER already exists. Skipping."
+            echo "TAG_EXISTS=true" >> "$GITHUB_ENV"
           else
-            echo "TAG_EXISTS=false" >> $GITHUB_ENV
+            echo "TAG_EXISTS=false" >> "$GITHUB_ENV"
           fi
 
       - name: Generate Release Notes
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.TAG_EXISTS != 'true'
+        if: env.TAG_EXISTS != 'true'
         run: |
           PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
           if [ -z "$PREV_TAG" ]; then
             git log --pretty=format:"- %s" | grep -E "^- (feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)" > RELEASE_NOTES.txt || echo "Initial release" > RELEASE_NOTES.txt
           else
-            git log ${PREV_TAG}..HEAD --pretty=format:"- %s" | grep -E "^- (feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)" > RELEASE_NOTES.txt || echo "No semantic changes" > RELEASE_NOTES.txt
+            git log "${PREV_TAG}..HEAD" --pretty=format:"- %s" | grep -E "^- (feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)" > RELEASE_NOTES.txt || echo "No semantic changes" > RELEASE_NOTES.txt
           fi
 
-      - name: Tag Repository
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.TAG_EXISTS != 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag v${{ steps.gitversion.outputs.SemVer }}
-          git push origin v${{ steps.gitversion.outputs.SemVer }}
-
       - name: Pack
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.TAG_EXISTS != 'true'
-        run: dotnet pack src/SharpArena/SharpArena.csproj -c Release --no-build /p:PackageVersion=${{ steps.gitversion.outputs.NuGetVersionV2 }} -o ./artifacts
-
-      - name: Create Release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.TAG_EXISTS != 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.gitversion.outputs.SemVer }}
-          name: Release v${{ steps.gitversion.outputs.SemVer }}
-          generate_release_notes: true
-          files: ./artifacts/*.nupkg
+        if: env.TAG_EXISTS != 'true'
+        env:
+          NUGET_VERSION: ${{ steps.gitversion.outputs.NuGetVersionV2 }}
+        run: dotnet pack src/SharpArena/SharpArena.csproj -c Release --no-build /p:PackageVersion="$NUGET_VERSION" -o ./artifacts
 
       - name: Push to NuGet
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.TAG_EXISTS != 'true'
+        if: env.TAG_EXISTS != 'true'
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
           if [ -n "$NUGET_API_KEY" ]; then
-            dotnet nuget push ./artifacts/*.nupkg -k $NUGET_API_KEY -s https://api.nuget.org/v3/index.json --skip-duplicate
+            dotnet nuget push ./artifacts/*.nupkg -k "$NUGET_API_KEY" -s https://api.nuget.org/v3/index.json --skip-duplicate
           else
             echo "NUGET_API_KEY is empty. Skipping NuGet push."
           fi
+
+      # The tag is created by this action only after packing/publishing succeeded.
+      - name: Create Release
+        if: env.TAG_EXISTS != 'true'
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          tag_name: v${{ steps.gitversion.outputs.SemVer }}
+          target_commitish: ${{ github.sha }}
+          name: Release v${{ steps.gitversion.outputs.SemVer }}
+          generate_release_notes: true
+          files: ./artifacts/*.nupkg

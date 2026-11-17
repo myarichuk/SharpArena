@@ -10,6 +10,12 @@ namespace SharpArena.Collections;
 /// A non-owning view of UTF-8 text stored in unmanaged (arena) memory.
 /// This struct is unmanaged and can be stored in arena-backed collections.
 /// </summary>
+/// <remarks>
+/// This struct does not hold a reference to its <see cref="ArenaAllocator"/>, so <see cref="AsSpan"/>, <see cref="ToString"/>, <c>Equals</c>, <c>GetHashCode</c> and the implicit conversion to span do not check whether the arena is still alive.
+/// After <see cref="ArenaAllocator.Reset"/> or <see cref="ArenaAllocator.Dispose()"/> is called, using the string reads freed or reused memory, which is undefined behaviour.
+/// Call <see cref="Verify(ArenaAllocator)"/> or <see cref="IsAlive(ArenaAllocator)"/> first whenever the arena's state is not known.
+/// <see cref="ArenaAllocator"/> has a finalizer that frees its memory, so keep the arena reachable (for example with <c>using var arena = ...</c>, or <see cref="System.GC.KeepAlive(object)"/>) for as long as strings allocated from it are in use.
+/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 [System.Diagnostics.DebuggerDisplay("{ToString()}")]
 public readonly unsafe struct ArenaUtf8String : IEquatable<ArenaUtf8String>
@@ -218,6 +224,17 @@ public readonly unsafe struct ArenaUtf8String : IEquatable<ArenaUtf8String>
         }
 
         // Fast path: ASCII-only strings (very common)
+#if NET8_0_OR_GREATER
+        if (System.Text.Ascii.IsValid(other.AsSpan()))
+        {
+            if (_len != other.Length)
+            {
+                return false;
+            }
+
+            return System.Text.Ascii.Equals(AsSpan(), other.AsSpan());
+        }
+#else
         if (IsAscii(other))
         {
             if (_len != other.Length)
@@ -234,6 +251,7 @@ public readonly unsafe struct ArenaUtf8String : IEquatable<ArenaUtf8String>
             }
             return true;
         }
+#endif
 
         int exactByteCount = Encoding.UTF8.GetByteCount(other);
         if (exactByteCount != _len)
@@ -265,6 +283,7 @@ public readonly unsafe struct ArenaUtf8String : IEquatable<ArenaUtf8String>
         }
     }
 
+#if !NET8_0_OR_GREATER
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool IsAscii(string s)
     {
@@ -278,7 +297,8 @@ public readonly unsafe struct ArenaUtf8String : IEquatable<ArenaUtf8String>
         }
 
         return true;
-    }    
+    }
+#endif
     
     /// <summary>
     /// Decodes the UTF-8 content into the provided character buffer.

@@ -27,4 +27,9 @@
     <ProjectReference Include="..\..\samples\SimpleMathParser\SimpleMathParser.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Pure helper from the Blazor WASM sample, linked as source (cheaper than referencing the WASM project). -->
+    <Compile Include="..\..\samples\BlazorMathSymbolicCalculator\VariableSubstitution.cs" Link="VariableSubstitution.cs" />
+  </ItemGroup>
+
 </Project>

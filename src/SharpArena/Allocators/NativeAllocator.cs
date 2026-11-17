@@ -86,7 +86,12 @@ public static unsafe class NativeAllocator
 
     private static readonly bool IsWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
     private static readonly bool IsMacOS = RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
-    private static readonly int MapAnonymousFlag = IsMacOS ? Native.MAP_ANONYMOUS_MACOS : Native.MAP_ANONYMOUS_LINUX;
+    // Darwin and the BSDs all use MAP_ANON = 0x1000; only Linux uses 0x20. Passing 0x20 on FreeBSD
+    // is not MAP_ANON, so the mapping would not be anonymous and mmap fails with fd == -1.
+    private static readonly int MapAnonymousFlag =
+        IsMacOS || RuntimeInformation.IsOSPlatform(OSPlatform.Create("FREEBSD"))
+            ? Native.MAP_ANONYMOUS_MACOS
+            : Native.MAP_ANONYMOUS_LINUX;
 
     // ConcurrentDictionary ensures async/thread safety
 #if DEBUG
@@ -625,7 +630,7 @@ internal static partial class Native
     public const int PROT_NONE = 0, PROT_READ = 1, PROT_WRITE = 2;
     public const int MAP_PRIVATE = 2;
 
-    // MAP_ANONYMOUS has different bit values per OS: Linux/BSD use 0x20, macOS/Darwin uses 0x1000.
+    // MAP_ANONYMOUS has different bit values per OS: Linux uses 0x20, macOS/Darwin and the BSDs use 0x1000.
     // Hard-coding the Linux value here made the PlatformInvoke backend fail on macOS.
     public const int MAP_ANONYMOUS_LINUX = 0x20;
     public const int MAP_ANONYMOUS_MACOS = 0x1000;

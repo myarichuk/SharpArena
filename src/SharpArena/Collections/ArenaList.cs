@@ -196,7 +196,8 @@ public unsafe struct ArenaList<T>
         CheckAliveThrowIfNot();
         if (_header->Capacity < min)
         {
-            int newCap = _header->Capacity == 0 ? 4 : _header->Capacity * 2;
+            long doubled = _header->Capacity == 0 ? 4L : (long)_header->Capacity * 2;
+            int newCap = doubled > int.MaxValue ? int.MaxValue : (int)doubled;
             if (newCap < min) newCap = min;
             GrowTo(newCap);
         }
@@ -216,12 +217,13 @@ public unsafe struct ArenaList<T>
 
     private void Grow()
     {
-        if (_header->Capacity >= int.MaxValue / 2)
+        if (_header->Capacity >= int.MaxValue)
         {
             throw new InvalidOperationException("ArenaList capacity overflow.");
         }
 
-        int newCap = _header->Capacity == 0 ? 4 : _header->Capacity * 2;
+        long doubled = _header->Capacity == 0 ? 4L : (long)_header->Capacity * 2;
+        int newCap = doubled > int.MaxValue ? int.MaxValue : (int)doubled;
         GrowTo(newCap);
     }
 
