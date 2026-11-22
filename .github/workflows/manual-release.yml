@@ -30,7 +30,7 @@ jobs:
             10.0.x
 
       - name: Install GitVersion
-        uses: gittools/actions/gitversion/setup@a94a3b62ee018ef5346cb08fd0d63d93811fe691 # v3.0.0
+        uses: gittools/actions/gitversion/setup@389fe43e6b0189b98c40c43553070ac029304635 # v5.0.0
         with:
           versionSpec: '5.x'
 
